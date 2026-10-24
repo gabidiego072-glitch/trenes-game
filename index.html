@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <title>Vía Libre</title>
+  <meta name="description" content="Tú no conduces el tren: construyes las vías en tiempo real. Juego 3D en el navegador." />
+  <meta name="theme-color" content="#0d1030" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=Russo+One&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <canvas id="game"></canvas>
+
+  <div id="hud" hidden>
+    <div class="hud-tl">
+      <div class="lbl">Puntos</div>
+      <div id="score" class="big">0</div>
+      <div class="sub"><span id="dist">0</span> m recorridos</div>
+    </div>
+    <div class="hud-tr">
+      <div class="coins"><span class="coin-ico" aria-hidden="true"></span><span id="coins">0</span></div>
+      <div id="mult" class="mult" data-level="1">x1</div>
+    </div>
+    <div class="hud-bl">
+      <div id="speed" class="big">0</div>
+      <div class="lbl">km/h</div>
+    </div>
+    <div class="hud-br">
+      <div class="alt" aria-hidden="true">
+        <div id="altFill"></div>
+        <div class="alt-mark" style="bottom: 10%"></div>
+        <div class="alt-mark hi" style="bottom: 50%"></div>
+      </div>
+      <div class="lbl">Altura <span id="alt">0</span> m</div>
+    </div>
+    <button id="pauseBtn" class="icon-btn" aria-label="Pausa" title="Pausa (P)">
+      <svg viewBox="0 0 24 24" width="20" height="20"><rect x="6" y="5" width="4" height="14" rx="1" fill="currentColor"/><rect x="14" y="5" width="4" height="14" rx="1" fill="currentColor"/></svg>
+    </button>
+  </div>
+
+  <div id="warn" hidden>Rascacielos delante · ¡gira!</div>
+  <div id="toast" aria-live="polite"></div>
+
+  <button id="tl" class="tbtn" aria-label="Vía a la izquierda" hidden>
+    <svg viewBox="0 0 24 24" width="34" height="34"><path d="M15 5 8 12l7 7" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  </button>
+  <button id="tr" class="tbtn" aria-label="Vía a la derecha" hidden>
+    <svg viewBox="0 0 24 24" width="34" height="34"><path d="m9 5 7 7-7 7" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  </button>
+
+  <section id="menu" class="screen">
+    <div class="panel">
+      <h1 class="title">VÍA <span>LIBRE</span></h1>
+      <p class="tagline">Tú no conduces el tren. <strong>Tú construyes las vías.</strong></p>
+      <div class="cards">
+        <div class="card">
+          <div class="keys"><kbd>←</kbd><kbd>→</kbd></div>
+          <h3>Dirige la vía</h3>
+          <p>Con las flechas o <kbd>A</kbd> <kbd>D</kbd>. En móvil, toca los lados de la pantalla.</p>
+        </div>
+        <div class="card">
+          <div class="ico">⤴</div>
+          <h3>Pasa por encima</h3>
+          <p>Si la vía va contra un edificio, sube sola por encima. Cuanto más alto vas, más puntos.</p>
+        </div>
+        <div class="card danger">
+          <div class="ico">●</div>
+          <h3>Esquiva los rascacielos</h3>
+          <p>Los de luces rojas son demasiado altos. Si la vía entra en uno, el tren choca.</p>
+        </div>
+      </div>
+      <button id="playBtn" class="primary">Jugar</button>
+      <div class="menu-foot">
+        <span>Récord: <strong id="best">0</strong></span>
+        <button id="qualityBtn" class="ghost">Calidad: Alta</button>
+        <button id="muteBtn" class="ghost">Sonido: Sí</button>
+      </div>
+    </div>
+  </section>
+
+  <section id="pause" class="screen" hidden>
+    <div class="panel small">
+      <h2>Pausa</h2>
+      <button id="resumeBtn" class="primary">Continuar</button>
+      <button id="quitBtn" class="ghost">Volver al menú</button>
+    </div>
+  </section>
+
+  <section id="over" class="screen" hidden>
+    <div class="panel small">
+      <h2 class="crash-title">¡Choque!</h2>
+      <div id="newBest" class="new-best" hidden>¡Nuevo récord!</div>
+      <div class="stats">
+        <div><span class="lbl">Puntos</span><strong id="oScore">0</strong></div>
+        <div><span class="lbl">Distancia</span><strong id="oDist">0 m</strong></div>
+        <div><span class="lbl">Monedas</span><strong id="oCoins">0</strong></div>
+        <div><span class="lbl">Altura máx.</span><strong id="oAlt">0 m</strong></div>
+      </div>
+      <button id="againBtn" class="primary">Jugar otra vez</button>
+      <button id="menuBtn" class="ghost">Menú</button>
+    </div>
+  </section>
+
+  <div id="loading">Cargando la ciudad…</div>
+
+  <script>
+    window.addEventListener('error', function (e) {
+      var el = document.getElementById('loading');
+      if (el) {
+        el.hidden = false;
+        el.textContent = 'No se pudo iniciar el juego: ' + (e.message || 'error desconocido');
+      }
+    });
+  </script>
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>
