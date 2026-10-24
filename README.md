@@ -13,6 +13,7 @@ Juego 3D para el navegador en tercera persona. El tren avanza solo y tú decides
 | Silenciar | `M` | Menú |
 | Empezar / reintentar | `Enter` o `Espacio` | Botón *Jugar* |
 
+- **Lleva pasajeros:** la flecha de arriba señala la estación. Pasa por el haz verde para recoger a la gente y llévala al haz ámbar antes de que acabe la cuenta atrás. Cuanto antes llegues, más puntos. Algunas estaciones están en los tejados. Si se acaba el tiempo pierdes una vida; con 3 vidas perdidas, se acaba la partida. Cada entrega da algo menos de tiempo para la siguiente.
 - **Pasa por encima:** la vía mira unos 60 m por delante y empieza a subir con tiempo para pasar por encima de cualquier edificio normal.
 - **Altura = puntos:** sobre los tejados ganas puntos x2; por encima de 18 m, x3.
 - **Monedas y gemas:** están en las calles, en los parques, sobre los lagos y en los tejados. Las gemas azules valen 10 veces más.
@@ -42,6 +43,7 @@ En el repositorio: **Settings → Pages → Build and deployment → Deploy from
 - `src/train.js`: locomotora de vapor, ténder y vagones con ruedas y bielas animadas, inclinación en las curvas y física del choque.
 - `src/effects.js`: humo, chispas, fuego y el dron constructor con la vista previa de la vía.
 - `src/audio.js`: todos los sonidos sintetizados con Web Audio (sin archivos de audio).
+- `src/missions.js`: estaciones, pasajeros, cuenta atrás y vidas.
 - `src/main.js`: bucle de juego, cámara, puntuación, menús y modo demostración (en el menú juega una IA).
 
 La calidad (sombras, resolución y resplandor) se elige en el menú y baja sola si el juego va lento.

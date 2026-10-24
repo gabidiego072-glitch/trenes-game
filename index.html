@@ -27,6 +27,20 @@
       <div class="lbl">Puntos</div>
       <div id="score" class="big">0</div>
       <div class="sub"><span id="dist">0</span> m recorridos</div>
+      <div id="hearts" class="hearts" aria-label="Vidas"><span>♥</span><span>♥</span><span>♥</span></div>
+    </div>
+    <div id="mission" class="mission" data-state="pickup">
+      <div class="m-row">
+        <div class="m-arrow" aria-hidden="true">
+          <svg id="mArrow" viewBox="0 0 24 24" width="30" height="30"><path d="M12 2 20 20 12 15.5 4 20Z" fill="currentColor"/></svg>
+        </div>
+        <div class="m-info">
+          <div id="mText" class="m-text">Recoge a los pasajeros</div>
+          <div class="m-sub"><span id="mDist">0 m</span> · <span id="mCount"></span></div>
+        </div>
+        <div id="mTime" class="m-time">0:00</div>
+      </div>
+      <div class="m-bar"><div id="mBar"></div></div>
     </div>
     <div class="hud-tr">
       <div class="coins"><span class="coin-ico" aria-hidden="true"></span><span id="coins">0</span></div>
@@ -64,6 +78,11 @@
       <h1 class="title">VÍA <span>LIBRE</span></h1>
       <p class="tagline">Tú no conduces el tren. <strong>Tú construyes las vías.</strong></p>
       <div class="cards">
+        <div class="card mission-card">
+          <div class="ico">◆</div>
+          <h3>Lleva pasajeros</h3>
+          <p>Sigue la flecha hasta la estación, recoge a la gente y llévala a su destino antes de que se acabe el tiempo.</p>
+        </div>
         <div class="card">
           <div class="keys"><kbd>←</kbd><kbd>→</kbd></div>
           <h3>Dirige la vía</h3>
@@ -72,12 +91,12 @@
         <div class="card">
           <div class="ico">⤴</div>
           <h3>Pasa por encima</h3>
-          <p>Si la vía va contra un edificio, sube sola por encima. Cuanto más alto vas, más puntos.</p>
+          <p>Si la vía va contra un edificio, sube sola por encima. Hay estaciones en los tejados.</p>
         </div>
         <div class="card danger">
           <div class="ico">●</div>
           <h3>Esquiva los rascacielos</h3>
-          <p>Los de luces rojas son demasiado altos. Si la vía entra en uno, el tren choca.</p>
+          <p>Los de luces rojas son demasiado altos. Si la vía entra en uno, el tren choca. Tienes 3 vidas para llegar a tiempo.</p>
         </div>
       </div>
       <button id="playBtn" class="primary">Jugar</button>
@@ -99,10 +118,13 @@
 
   <section id="over" class="screen" hidden>
     <div class="panel small">
-      <h2 class="crash-title">¡Choque!</h2>
+      <h2 id="oTitle" class="crash-title">¡Choque!</h2>
+      <p id="oReason" class="over-reason"></p>
       <div id="newBest" class="new-best" hidden>¡Nuevo récord!</div>
       <div class="stats">
         <div><span class="lbl">Puntos</span><strong id="oScore">0</strong></div>
+        <div><span class="lbl">Entregas</span><strong id="oDeliv">0</strong></div>
+        <div><span class="lbl">Pasajeros</span><strong id="oPass">0</strong></div>
         <div><span class="lbl">Distancia</span><strong id="oDist">0 m</strong></div>
         <div><span class="lbl">Monedas</span><strong id="oCoins">0</strong></div>
         <div><span class="lbl">Altura máx.</span><strong id="oAlt">0 m</strong></div>

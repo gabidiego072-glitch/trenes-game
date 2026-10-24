@@ -137,6 +137,35 @@ export class Sfx {
     this.tone(784, { type: 'square', gain: 0.05, decay: 0.2, when: 0.09 });
   }
 
+  pickup() {
+    if (!this.ctx) return;
+    // "ding-dong" de estación
+    this.tone(784, { type: 'sine', gain: 0.22, decay: 0.5 });
+    this.tone(622.3, { type: 'sine', gain: 0.22, decay: 0.7, when: 0.28 });
+  }
+
+  deliver() {
+    if (!this.ctx) return;
+    [523.25, 659.25, 784, 1046.5].forEach((f, i) => {
+      this.tone(f, { type: 'square', gain: 0.06, decay: 0.18, when: i * 0.08 });
+      this.tone(f * 2, { type: 'triangle', gain: 0.08, decay: 0.25, when: i * 0.08 });
+    });
+    this.tone(1046.5, { type: 'triangle', gain: 0.1, decay: 0.6, when: 0.34 });
+    this.tone(1318.5, { type: 'triangle', gain: 0.08, decay: 0.6, when: 0.34 });
+  }
+
+  fail() {
+    if (!this.ctx) return;
+    this.tone(392, { type: 'sawtooth', gain: 0.07, decay: 0.25 });
+    this.tone(311, { type: 'sawtooth', gain: 0.07, decay: 0.25, when: 0.22 });
+    this.tone(233, { type: 'sawtooth', gain: 0.07, decay: 0.6, when: 0.44, slide: 0.8 });
+  }
+
+  tick(sec) {
+    if (!this.ctx) return;
+    this.tone(sec <= 2 ? 1320 : 990, { type: 'square', gain: 0.05, decay: 0.05 });
+  }
+
   warn() {
     if (!this.ctx) return;
     const now = this.ctx.currentTime;

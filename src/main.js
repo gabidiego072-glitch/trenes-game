@@ -15,6 +15,7 @@ import { Train } from './train.js';
 import { Particles, Builder } from './effects.js';
 import { Sfx } from './audio.js';
 import { Input } from './input.js';
+import { Missions } from './missions.js';
 
 // ---------- DOM ----------
 const $ = (id) => document.getElementById(id);
@@ -24,6 +25,9 @@ const ui = {
   menu: $('menu'), pause: $('pause'), over: $('over'), best: $('best'), loading: $('loading'),
   oScore: $('oScore'), oDist: $('oDist'), oCoins: $('oCoins'), oAlt: $('oAlt'), newBest: $('newBest'),
   qualityBtn: $('qualityBtn'), muteBtn: $('muteBtn'), tl: $('tl'), tr: $('tr'),
+  mission: $('mission'), mText: $('mText'), mDist: $('mDist'), mCount: $('mCount'), mTime: $('mTime'),
+  mBar: $('mBar'), mArrow: $('mArrow'), hearts: $('hearts'), oTitle: $('oTitle'), oReason: $('oReason'),
+  oDeliv: $('oDeliv'), oPass: $('oPass'),
 };
 const touch = isTouchDevice();
 
@@ -122,6 +126,7 @@ const world = new World(scene);
 const track = new Track(scene, world);
 const train = new Train(scene);
 const builder = new Builder(scene);
+const missions = new Missions(scene, world);
 const smoke = new Particles(scene, 900, { soft: true, drag: 1.6, gravity: 1.2 });
 const sparks = new Particles(scene, 900, { additive: true, gravity: -14, drag: 0.6 });
 const fire = new Particles(scene, 300, { additive: true, soft: true, gravity: 3, drag: 2.2 });
@@ -134,6 +139,8 @@ const C_GOLD = new THREE.Color(1.0, 0.75, 0.2);
 const C_GEM = new THREE.Color(0.35, 0.9, 1.0);
 const C_FIRE = new THREE.Color(1.0, 0.45, 0.12);
 const C_FIRE2 = new THREE.Color(1.0, 0.8, 0.3);
+const C_PICKUP = new THREE.Color(0.24, 1.0, 0.66);
+const CONFETTI = [0xff5a5f, 0xffc93c, 0x3dffa8, 0x5ef2ff, 0xb388ff, 0xffffff].map((c) => new THREE.Color(c));
 
 // ---------- Estado ----------
 const G = {
@@ -182,6 +189,9 @@ function resetRun(attract) {
   while (track.headS < 40) track.addPoint();
   track.flush();
   train.place(track, G.s, 0, 0);
+  missions.reset();
+  if (!attract) missions.begin(train.position, train.forward(new THREE.Vector3()), G.v);
+  updateHearts();
   updateCamera(0, true);
   hintStep = 0;
   hintT = 1.2;
@@ -238,8 +248,8 @@ function toast(text, dur = 1.8, color = '') {
 let hintStep = 0;
 let hintT = 0;
 const HINTS = touch
-  ? ['Toca los lados para dirigir la vía', 'Ve hacia un edificio: la vía sube sola', 'Evita los rascacielos de luces rojas']
-  : ['Usa ← → para dirigir la vía', 'Ve hacia un edificio: la vía sube sola', 'Evita los rascacielos de luces rojas'];
+  ? ['Toca los lados para dirigir la vía', 'Sigue la flecha hasta la estación verde', 'Evita los rascacielos de luces rojas']
+  : ['Usa ← → para dirigir la vía', 'Sigue la flecha hasta la estación verde', 'Evita los rascacielos de luces rojas'];
 
 // ---------- Bucle de juego ----------
 function stepRun(dt) {
@@ -300,6 +310,9 @@ function stepRun(dt) {
     }
   }
 
+  if (!G.attract) handleMission(dt, fwd);
+  if (G.mode !== 'playing' && !G.attract) return;
+
   // aviso de rascacielos
   const danger = track.blockedAt !== null || towerAhead(track.steer, 42);
   if (danger && !G.danger && !G.attract) sfx.warn();
@@ -317,6 +330,82 @@ function stepRun(dt) {
       1.8 + Math.random() * 0.8, 0.8, 4.5 + Math.random() * 2, C_SMOKE, 0.32
     );
   }
+}
+
+// ---------- Pasajeros ----------
+function handleMission(dt, fwd) {
+  const ev = missions.update(dt, G.time, train.position, fwd, G.v);
+  if (!ev) return;
+  if (ev.type === 'pickup') {
+    sfx.pickup();
+    toast('¡' + ev.count + ' pasajeros a bordo!', 1.8, '#3dffa8');
+    for (const p of ev.people) {
+      for (let i = 0; i < 10; i++) {
+        sparks.spawn(p.x, p.y + 1, p.z, (Math.random() - 0.5) * 4, 2 + Math.random() * 5, (Math.random() - 0.5) * 4,
+          0.6 + Math.random() * 0.4, 0.35, 0.05, C_PICKUP, 1);
+      }
+    }
+  } else if (ev.type === 'deliver') {
+    const pts = Math.round((500 + ev.count * 150 + ev.remaining * 50) * G.mult);
+    G.score += pts;
+    sfx.deliver();
+    const fast = ev.remaining > ev.limit * 0.45;
+    toast('+' + pts.toLocaleString('es-ES') + (fast ? ' · ¡Entrega rapidísima!' : ' · ¡Entregados!'), 2, '#ffb347');
+    const sp = ev.spot;
+    for (let i = 0; i < 140; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const r = Math.random() * 5;
+      sparks.spawn(sp.x + Math.cos(a) * r, sp.y + 1, sp.z + Math.sin(a) * r,
+        (Math.random() - 0.5) * 8, 8 + Math.random() * 12, (Math.random() - 0.5) * 8,
+        1.2 + Math.random() * 0.8, 0.45, 0.2, CONFETTI[i % CONFETTI.length], 1);
+    }
+  } else if (ev.type === 'fail') {
+    sfx.fail();
+    updateHearts(true);
+    if (ev.hearts <= 0) {
+      gameOver('time');
+      return;
+    }
+    toast(ev.wasDeliver ? 'Se acabó el tiempo: los pasajeros se bajan' : 'Los pasajeros se cansaron de esperar', 2.2, '#ff6b6b');
+  } else if (ev.type === 'tick') {
+    sfx.tick(ev.sec);
+  }
+}
+
+function updateHearts(hit = false) {
+  const spans = ui.hearts.children;
+  for (let i = 0; i < spans.length; i++) spans[i].classList.toggle('lost', i >= missions.hearts);
+  if (hit) {
+    ui.hearts.classList.remove('hit');
+    void ui.hearts.offsetWidth;
+    ui.hearts.classList.add('hit');
+  }
+}
+
+function updateMissionHud() {
+  const st = missions.state;
+  ui.mission.dataset.state = st;
+  if (!missions.active) return;
+  const pickup = st === 'pickup';
+  const spot = missions.target;
+  ui.mText.textContent = pickup ? 'Recoge a los pasajeros' : 'Lleva a los pasajeros';
+  const n = pickup ? missions.station.people.length : missions.carrying;
+  ui.mCount.textContent = (pickup ? n + ' esperando' : n + ' a bordo') + (spot.roof ? ' · en un tejado' : '');
+  ui.mDist.textContent = Math.round(missions.distanceTo(train.position)) + ' m';
+  const t = Math.max(0, Math.ceil(missions.time));
+  ui.mTime.textContent = Math.floor(t / 60) + ':' + String(t % 60).padStart(2, '0');
+  const low = missions.time <= 5;
+  ui.mTime.classList.toggle('low', low);
+  ui.mission.classList.toggle('low', low);
+  ui.mBar.style.width = clamp((missions.time / missions.limit) * 100, 0, 100) + '%';
+}
+
+function updateMissionArrow() {
+  const t = missions.target;
+  if (!t) return;
+  tmpL.set(t.x, t.y + 2, t.z).applyMatrix4(camera.matrixWorldInverse);
+  const ang = Math.atan2(tmpL.x, -tmpL.z);
+  ui.mArrow.style.transform = 'rotate(' + ang.toFixed(3) + 'rad)';
 }
 
 function crash() {
@@ -370,8 +459,16 @@ function stepCrash(dt) {
   }
 }
 
-function gameOver() {
+function gameOver(reason = 'crash') {
   G.mode = 'over';
+  ui.toast.classList.remove('show');
+  toastTimer = 0;
+  ui.oTitle.textContent = reason === 'time' ? '¡Sin tiempo!' : '¡Choque!';
+  ui.oReason.textContent = reason === 'time'
+    ? 'Se acabaron las vidas: los pasajeros se cansaron de esperar.'
+    : 'El tren se estrelló contra un rascacielos.';
+  ui.oDeliv.textContent = missions.deliveries;
+  ui.oPass.textContent = missions.passengers;
   const score = Math.floor(G.score);
   const isBest = score > G.best;
   if (isBest) {
@@ -469,6 +566,7 @@ function updateHud(dt) {
   ui.mult.textContent = 'x' + G.mult;
   ui.mult.dataset.level = G.mult;
   ui.warn.hidden = !(G.danger && G.mode === 'playing');
+  updateMissionHud();
 }
 
 // ---------- Menús ----------
@@ -507,6 +605,7 @@ function resumeGame() {
 }
 
 function toMenu() {
+  missions.reset();
   ui.pause.hidden = true;
   ui.over.hidden = true;
   ui.hud.hidden = true;
@@ -583,6 +682,7 @@ function frame(now) {
   if (G.mode === 'playing') {
     G.playT += dt;
     updateHud(dt);
+    updateMissionArrow();
     if (hintStep < HINTS.length) {
       hintT -= dt;
       if (hintT <= 0) {
@@ -642,4 +742,4 @@ function simulate(n, dt, steerFn) {
   updateCamera(1, true);
   return { mode: G.mode, dist: G.dist, y: train.position.y, v: G.v, coins: G.coins, score: G.score };
 }
-window.__game = { G, track, world, train, renderer, startGame, toMenu, simulate };
+window.__game = { G, track, world, train, renderer, missions, startGame, toMenu, simulate };
