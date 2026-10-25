@@ -8,7 +8,7 @@ const SHIRTS = [0xe8504a, 0x3f7fe0, 0xf2c14e, 0x8e5bd6, 0x2bb39a, 0xf07ab0, 0xee
 const SKIN = [0xf1c7a3, 0xd9a07a, 0xa86f4c, 0x6e4630];
 const REACH = 8.5; // radio en el que el tren "pasa por la estación"
 
-const padGeo = new THREE.CylinderGeometry(5, 5.2, 0.3, 40);
+const padGeo = new THREE.CylinderGeometry(5, 5.2, 3, 40); // alto para no quedar flotando en pendientes
 const ringGeo = new THREE.TorusGeometry(5.05, 0.16, 8, 64);
 ringGeo.rotateX(Math.PI / 2);
 const beamGeo = new THREE.CylinderGeometry(5.4, 5.4, 170, 32, 1, true);
@@ -53,7 +53,7 @@ class Station {
     this.group.position.set(spot.x, spot.y, spot.z);
 
     const pad = new THREE.Mesh(padGeo, padMat);
-    pad.position.y = 0.05;
+    pad.position.y = -1.3;
     pad.receiveShadow = true;
     this.ringMat = new THREE.MeshStandardMaterial({ color: 0x111111, emissive: color, emissiveIntensity: 3 });
     const ring = new THREE.Mesh(ringGeo, this.ringMat);
@@ -170,7 +170,12 @@ export class Missions {
       const pz = tz + (Math.random() - 0.5) * 70;
       const cell = world.cell(Math.floor(px / CELL_X), Math.floor(pz / CELL_Z));
       let spot = null;
-      if (Math.random() < 0.45 && cell.type !== 'park') {
+      if (!cell.city) {
+        // en el campo o la montaña: un claro sin árboles ni edificios
+        const gy = world.groundAt(px, pz);
+        if (world.heightAt(px, pz, 5, false) - gy > 0.3 || world.biomes.water) continue;
+        spot = { x: px, z: pz, y: gy, roof: false };
+      } else if (Math.random() < 0.45 && cell.type !== 'park') {
         const cands = cell.obstacles.filter((o) => !o.tower && o.x1 - o.x0 > 10 && o.z1 - o.z0 > 10 && o.h > 4);
         if (cands.length) {
           const o = cands[(Math.random() * cands.length) | 0];

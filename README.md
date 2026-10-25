@@ -20,6 +20,12 @@ Juego 3D para el navegador en tercera persona. El tren avanza solo y tú decides
 - **Rascacielos con luces rojas:** son demasiado altos para subirlos. Si la vía entra en uno, se corta y el tren choca. La vista previa punteada se vuelve roja cuando vas hacia uno.
 - La velocidad sube con la distancia. Las subidas frenan el tren y las bajadas lo aceleran.
 
+## El mundo
+
+- **Ciudad estilo Nueva York:** cuadrícula de Manhattan con avenidas de sentido único, Midtown con rascacielos gigantes y carteles de neón, edificios de ladrillo con escaleras de incendios y depósitos de agua, casas de piedra rojiza, parques, taxis amarillos y vapor saliendo de la calzada.
+- **Llanuras:** campos de cultivo, granjas con granero y silo, balas de heno, lagos y aerogeneradores (con baliza roja: no se pueden saltar).
+- **Montañas:** relieve de hasta unos 130 m con pinares, rocas, cabañas, nieve en las cumbres y antenas en algunas cimas. La vía sube por las laderas y cruza los valles con viaductos.
+
 ## Ejecutarlo
 
 No necesita compilación ni dependencias: Three.js se carga desde un CDN.
@@ -38,7 +44,9 @@ En el repositorio: **Settings → Pages → Build and deployment → Deploy from
 ## Cómo está hecho
 
 - `src/track.js`: el corazón del juego. Construye la vía punto a punto (cada 0,5 m) a partir de tu dirección. La altura se calcula sola: mira hacia delante, sube con antelación, tiene un margen de emergencia y un suavizado que nunca baja de la altura mínima (así la vía no atraviesa edificios).
-- `src/world.js`: ciudad procedural e infinita por manzanas (edificios con retranqueos, depósitos de agua, parques, lagos, rascacielos y monedas). Usa mallas instanciadas para dibujar miles de objetos con pocas llamadas.
+- `src/biomes.js` y `src/terrain.js`: biomas, relieve y la malla del suelo que sigue al tren.
+- `src/traffic.js`: taxis y coches.
+- `src/world.js`: mundo procedural e infinito por manzanas (edificios con retranqueos, depósitos de agua, parques, lagos, rascacielos y monedas). Usa mallas instanciadas para dibujar miles de objetos con pocas llamadas.
 - `src/materials.js`: ventanas, calles, pasos de cebra y cielo generados por shader, sin texturas.
 - `src/train.js`: locomotora de vapor, ténder y vagones con ruedas y bielas animadas, inclinación en las curvas y física del choque.
 - `src/effects.js`: humo, chispas, fuego y el dron constructor con la vista previa de la vía.

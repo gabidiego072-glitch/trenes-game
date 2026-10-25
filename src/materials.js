@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { CELL_X, CELL_Z, AVENUE, STREET, SIDEWALK } from './config.js';
+import { WATER as WATER_LEVEL } from './biomes.js';
 
 const HASH_GLSL = /* glsl */ `
 float h21(vec2 p) {
@@ -142,28 +143,37 @@ export function makeBuildingMaterial(opts = {}) {
   return mat;
 }
 
-/** Suelo: avenidas con carriles, calles, aceras con baldosas, pasos de cebra; todo en shader. */
+/**
+ * Suelo: en la ciudad, avenidas con carriles, aceras y pasos de cebra; en el campo, hierba, cultivos,
+ * roca en las pendientes, nieve en las cumbres y lagos. El bioma llega por vértice (aBio = ciudad, montaña).
+ */
 export function makeGroundMaterial() {
   const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.92, metalness: 0 });
   const k = (v) => v.toFixed(3);
   mat.onBeforeCompile = (shader) => {
     injectWorldVaryings(shader);
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nattribute vec2 aBio;\nvarying vec2 vBio;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvBio = aBio;');
     shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying vec2 vBio;')
       .replace(
         '#include <color_fragment>',
         `#include <color_fragment>
         float gRoad = 0.0;
+        float gWater = 0.0;
         {
+          vec2 p = vWPos.xz;
+          float cityMix = smoothstep(0.47, 0.53, vBio.x);
+          // ---- ciudad ----
           float CX = ${k(CELL_X)}; float CZ = ${k(CELL_Z)};
           float A2 = ${k(AVENUE / 2)}; float S2 = ${k(STREET / 2)}; float SW = ${k(SIDEWALK)};
-          vec2 p = vWPos.xz;
           float qx = p.x - floor(p.x / CX + 0.5) * CX;
           float qz = p.y - floor(p.y / CZ + 0.5) * CZ;
           float ax = abs(qx), az = abs(qz);
           float onAve = 1.0 - step(A2, ax);
           float onSt = 1.0 - step(S2, az);
           float road = max(onAve, onSt);
-          gRoad = road;
           float walk = max(1.0 - step(A2 + SW, ax), 1.0 - step(S2 + SW, az)) * (1.0 - road);
           float n = h21(floor(p * 3.0)) * 0.05 + h21(floor(p * 0.4)) * 0.05;
           vec3 lotCol = vec3(0.21, 0.2, 0.2) + n;
@@ -175,34 +185,78 @@ export function makeGroundMaterial() {
           float curb = max(
             step(A2, ax) * (1.0 - step(A2 + 0.3, ax)) * step(S2, az),
             step(S2, az) * (1.0 - step(S2 + 0.3, az)) * step(A2, ax));
-          vec3 col = mix(lotCol, walkCol, walk);
-          col = mix(col, vec3(0.55, 0.53, 0.5), curb);
-          col = mix(col, asphalt, road);
-          // avenidas de sentido único: líneas de carril blancas discontinuas
+          vec3 city = mix(lotCol, walkCol, walk);
+          city = mix(city, vec3(0.55, 0.53, 0.5), curb);
+          city = mix(city, asphalt, road);
           float laneA = (1.0 - step(0.1, abs(ax - 4.0))) + (1.0 - step(0.1, ax));
           laneA *= step(0.5, fract(p.y / 6.0)) * onAve * step(S2 + SW, az);
-          // calles: línea central amarilla
           float laneS = (1.0 - step(0.1, az)) * step(0.45, fract(p.x / 7.0)) * onSt * step(A2 + SW, ax);
           float edgeA = step(A2 - 0.8, ax) * (1.0 - step(A2 - 0.65, ax)) * step(S2, az);
           float edgeS = step(S2 - 0.8, az) * (1.0 - step(S2 - 0.65, az)) * step(A2, ax);
           float zebraA = (1.0 - step(A2 - 0.8, ax)) * step(S2 + 0.6, az) * (1.0 - step(S2 + 3.6, az)) * step(0.5, fract(p.x / 1.2));
           float zebraS = (1.0 - step(S2 - 0.8, az)) * step(A2 + 0.6, ax) * (1.0 - step(A2 + 3.6, ax)) * step(0.5, fract(p.y / 1.2));
-          // tapas de alcantarilla
           vec2 mh = vec2(mod(p.x + 9.0, 23.0) - 11.5, mod(p.y + 5.0, 17.0) - 8.5);
           float manhole = (1.0 - step(0.55, length(mh))) * road;
-          col = mix(col, vec3(0.13, 0.12, 0.11), manhole * 0.8);
-          col = mix(col, vec3(0.86, 0.66, 0.2), laneS * 0.9);
-          col = mix(col, vec3(0.8, 0.8, 0.78), clamp(laneA + edgeA + edgeS + zebraA + zebraS, 0.0, 1.0) * 0.85);
-          diffuseColor.rgb = col;
+          city = mix(city, vec3(0.13, 0.12, 0.11), manhole * 0.8);
+          city = mix(city, vec3(0.86, 0.66, 0.2), laneS * 0.9);
+          city = mix(city, vec3(0.8, 0.8, 0.78), clamp(laneA + edgeA + edgeS + zebraA + zebraS, 0.0, 1.0) * 0.85);
+
+          // ---- campo y montaña ----
+          float hgt = vWPos.y;
+          float slope = 1.0 - clamp(vWNrm.y, 0.0, 1.0);
+          float n1 = h21(floor(p * 0.8));
+          float n2 = h21(floor(p / 9.0));
+          vec3 grass = mix(vec3(0.26, 0.4, 0.15), vec3(0.38, 0.48, 0.19), h21(floor(p / 23.0)));
+          grass *= 0.85 + 0.17 * n1;
+          // flores en los prados
+          grass = mix(grass, vec3(0.9, 0.8, 0.35), step(0.994, h21(floor(p * 2.5))) * (1.0 - vBio.y));
+          // parcelas de cultivo con surcos (solo en la llanura)
+          vec2 fs = vec2(64.0, 46.0);
+          vec2 fid = floor(p / fs);
+          vec2 fl = fract(p / fs);
+          float fr = h21(fid + 3.7);
+          float inField = step(0.42, fr) * step(0.03, fl.x) * step(fl.x, 0.97) * step(0.04, fl.y) * step(fl.y, 0.96)
+            * (1.0 - smoothstep(0.2, 0.5, vBio.y)) * (1.0 - smoothstep(0.08, 0.14, slope));
+          float rows = step(0.5, fract((fr > 0.71 ? p.x : p.y) * 0.5));
+          vec3 crop = fr > 0.84 ? vec3(0.66, 0.53, 0.2) : fr > 0.66 ? vec3(0.36, 0.25, 0.15) : fr > 0.55 ? vec3(0.45, 0.5, 0.16) : vec3(0.27, 0.43, 0.13);
+          crop *= 0.82 + 0.22 * rows;
+          vec3 nat = mix(grass, crop, inField);
+          // setos entre parcelas
+          float hedge = step(0.42, fr) * (1.0 - step(0.012, min(min(fl.x, 1.0 - fl.x), min(fl.y, 1.0 - fl.y)))) * (1.0 - vBio.y);
+          nat = mix(nat, vec3(0.12, 0.22, 0.09), hedge);
+          // tierra de bosque en la montaña
+          nat = mix(nat, mix(vec3(0.17, 0.24, 0.11), vec3(0.24, 0.2, 0.14), n2), smoothstep(0.3, 0.7, vBio.y) * 0.7);
+          // roca en las pendientes
+          vec3 rock = mix(vec3(0.33, 0.31, 0.3), vec3(0.45, 0.42, 0.4), n2) * (0.8 + 0.3 * n1);
+          nat = mix(nat, rock, smoothstep(0.07, 0.15, slope));
+          // nieve en las cumbres
+          float snow = smoothstep(58.0, 68.0, hgt + n2 * 10.0) * (1.0 - smoothstep(0.16, 0.26, slope));
+          nat = mix(nat, vec3(0.9, 0.92, 0.97), snow);
+          // lagos y orillas de arena
+          float water = (1.0 - step(${k(WATER_LEVEL + 0.02)}, hgt)) * (1.0 - step(0.34, vBio.x));
+          float shore = (1.0 - step(${k(WATER_LEVEL + 0.7)}, hgt)) * (1.0 - water) * (1.0 - step(0.34, vBio.x));
+          nat = mix(nat, vec3(0.55, 0.5, 0.36), shore * 0.75);
+          vec3 waterCol = vec3(0.02, 0.06, 0.1) + vec3(0.01, 0.02, 0.03) * sin(p.x * 0.7 + p.y * 0.4);
+          nat = mix(nat, waterCol, water);
+
+          diffuseColor.rgb = mix(nat, city, cityMix);
+          gRoad = road * cityMix;
+          gWater = water * (1.0 - cityMix);
         }`
       )
       .replace(
         '#include <roughnessmap_fragment>',
         `#include <roughnessmap_fragment>
-        roughnessFactor = mix(roughnessFactor, 0.48, gRoad); // asfalto algo húmedo: refleja las luces`
+        roughnessFactor = mix(roughnessFactor, 0.48, gRoad);
+        roughnessFactor = mix(roughnessFactor, 0.05, gWater);`
+      )
+      .replace(
+        '#include <metalnessmap_fragment>',
+        `#include <metalnessmap_fragment>
+        metalnessFactor = mix(metalnessFactor, 0.3, gWater);`
       );
   };
-  mat.customProgramCacheKey = () => 'ground-ny';
+  mat.customProgramCacheKey = () => 'ground-biomes';
   return mat;
 }
 
@@ -395,6 +449,8 @@ export function makeSkyMaterial(sunDir) {
       uCity: { value: new THREE.Color(SKY.city) },
       uSunDir: { value: sunDir.clone().normalize() },
       uSunCol: { value: new THREE.Color(SKY.sun) },
+      uCityAmt: { value: 1 },
+      uMtnAmt: { value: 0 },
     },
     vertexShader: /* glsl */ `
       varying vec3 vDir;
@@ -405,6 +461,7 @@ export function makeSkyMaterial(sunDir) {
       }`,
     fragmentShader: /* glsl */ `
       uniform vec3 uTop, uMid, uGlowC, uHor, uLow, uCity, uSunCol, uSunDir;
+      uniform float uCityAmt, uMtnAmt;
       varying vec3 vDir;
       ${HASH_GLSL}
       void main() {
@@ -437,7 +494,18 @@ export function makeSkyMaterial(sunDir) {
         float wlit = step(0.7, h21(floor(wg))) * step(0.35, fract(wg.x)) * step(0.4, fract(wg.y)) * inB;
         float haze = 0.4 + 0.6 * (1.0 - smoothstep(0.0, 0.025, h));
         vec3 cityCol = mix(uCity, uHor, haze) + wlit * vec3(1.0, 0.72, 0.42) * 0.55 * (1.0 - haze * 0.6);
-        col = mix(col, cityCol, b);
+        // cordilleras lejanas cuando estás en la montaña o en el campo
+        float a1 = az * 5.0; float i1 = floor(a1); float f1 = fract(a1); f1 = f1 * f1 * (3.0 - 2.0 * f1);
+        float a2 = az * 16.0; float i2 = floor(a2); float f2 = fract(a2); f2 = f2 * f2 * (3.0 - 2.0 * f2);
+        float r1 = mix(h21(vec2(i1, 11.0)), h21(vec2(i1 + 1.0, 11.0)), f1);
+        float r2 = mix(h21(vec2(i2, 13.0)), h21(vec2(i2 + 1.0, 13.0)), f2);
+        float mh = (0.012 + 0.05 * r1 + 0.018 * r2) * (0.35 + 0.65 * uMtnAmt);
+        float inM = (1.0 - step(mh, h)) * step(-0.02, h);
+        float mhaze = 0.35 + 0.65 * (1.0 - smoothstep(0.0, 0.035, h));
+        vec3 mcol = mix(vec3(0.2, 0.21, 0.34), uHor, mhaze);
+        mcol = mix(mcol, vec3(0.85, 0.75, 0.8), step(mh - 0.012, h) * step(0.04, mh) * 0.6);
+        col = mix(col, mcol, inM * (1.0 - uCityAmt));
+        col = mix(col, cityCol, b * uCityAmt);
         gl_FragColor = vec4(col, 1.0);
         #include <colorspace_fragment>
       }`,

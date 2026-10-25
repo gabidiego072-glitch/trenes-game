@@ -235,7 +235,7 @@ export class Track {
     this.rails.setMatrixAt(slot * 2, basis(len * 1.04, -0.75, -0.085, mid));
     this.rails.setMatrixAt(slot * 2 + 1, basis(len * 1.04, 0.75, -0.085, mid));
 
-    const surf = this.world.heightAt(p1.x, p1.z, 0, false);
+    const surf = this.world.heightAt(p1.x, p1.z, 0, false, false);
     const elev = p1.y - BED_DROP - surf;
     p1.elev = elev;
     this.bed.setMatrixAt(slot, basis(len * 1.06, 0, -0.17 - 0.15 - 0.275, mid));

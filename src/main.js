@@ -45,7 +45,7 @@ const scene = new THREE.Scene();
 scene.fog = new THREE.FogExp2(SKY.hor, 0.0036);
 const camera = new THREE.PerspectiveCamera(62, innerWidth / innerHeight, 0.3, 2500);
 
-const sunDir = new THREE.Vector3(-0.42, 0.14, 0.9).normalize();
+const sunDir = new THREE.Vector3(-0.78, 0.2, 0.6).normalize();
 const skyMat = makeSkyMaterial(sunDir);
 const sky = new THREE.Mesh(new THREE.SphereGeometry(1200, 40, 20), skyMat);
 sky.renderOrder = -10;
@@ -678,6 +678,18 @@ document.addEventListener('visibilitychange', () => {
 // ---------- Bucle ----------
 const FAR = new THREE.Vector3(1e6, 0, 1e6);
 
+/** El cielo cambia de skyline a cordilleras según el bioma en el que está el tren. */
+function updateSkyBiome(dt) {
+  const p = train.position;
+  const city = world.isCity(p.x, p.z) ? 1 : 0;
+  world.biomes.ground(p.x, p.z);
+  const u = skyMat.uniforms;
+  u.uCityAmt.value = damp(u.uCityAmt.value, city, 0.6, dt);
+  u.uMtnAmt.value = damp(u.uMtnAmt.value, world.biomes.m, 0.6, dt);
+  // fuera de la ciudad el aire está más limpio: se ven las montañas a lo lejos
+  scene.fog.density = damp(scene.fog.density, city ? 0.0036 : 0.0023, 0.5, dt);
+}
+
 /** Vapor de las alcantarillas cercanas a la cámara. */
 function emitSteam(dt) {
   const cx = camera.position.x, cz = camera.position.z;
@@ -714,6 +726,7 @@ function frame(now) {
     world.update(train.position);
     if (G.mode === 'crash' || G.mode === 'over') traffic.update(dt, train.position, FAR, tmpF.set(0, 0, 1), false, 0);
     emitSteam(dt);
+    updateSkyBiome(dt);
     const building = G.mode === 'playing' || G.mode === 'menu';
     builder.update(G.time, track.head, track, world, building ? sparks : null, building && track.blockedAt === null);
     updateCamera(dt);
@@ -783,4 +796,4 @@ function simulate(n, dt, steerFn) {
   updateCamera(1, true);
   return { mode: G.mode, dist: G.dist, y: train.position.y, v: G.v, coins: G.coins, score: G.score };
 }
-window.__game = { G, track, world, train, renderer, missions, traffic, startGame, toMenu, simulate };
+window.__game = { G, track, world, train, renderer, camera, missions, traffic, startGame, toMenu, simulate };

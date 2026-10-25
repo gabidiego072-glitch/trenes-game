@@ -1,8 +1,10 @@
 import * as THREE from 'three';
 import { CELL_X, CELL_Z, AVENUE, STREET, SIDEWALK, VIEW_DIST } from './config.js';
 import { mulberry32, hash2, lerp } from './utils.js';
+import { Biomes } from './biomes.js';
+import { Terrain } from './terrain.js';
 import {
-  makeBuildingMaterial, makeGroundMaterial, makeSpinMaterial, makeGlowMaterial,
+  makeBuildingMaterial, makeSpinMaterial, makeGlowMaterial,
   makeBillboardAtlas, makeBillboardMaterial, makeLightPoolMaterial, BILLBOARD_TILES,
 } from './materials.js';
 
@@ -12,6 +14,7 @@ const _p = new THREE.Vector3();
 const _s = new THREE.Vector3();
 const _c = new THREE.Color();
 const Y_AXIS = new THREE.Vector3(0, 1, 0);
+const _e = new THREE.Euler();
 const ZERO = new THREE.Matrix4().makeScale(0, 0, 0);
 
 /** Malla instanciada con huecos reutilizables. Solo dibuja hasta la instancia más alta usada. */
@@ -66,6 +69,52 @@ const STONE = [0xc9b89a, 0xbfae90, 0xd4c6aa, 0xb3a68e, 0xa8a196, 0xc2b9a8, 0x9e9
 const MULLION = [0x8b96a3, 0x6d7885, 0xaab4bf, 0x4c5560, 0x9aa7b0];
 const TOWER_GLASS = [0x3a4a5e, 0x2c3a4c, 0x45566a, 0x253242, 0x4f6175];
 const TREE_GREENS = [0x3f6b35, 0x4d7a3a, 0x355f30, 0x5a8a40, 0x2f5a3a];
+const PINE_GREENS = [0x1f3d26, 0x24452b, 0x2b4f30, 0x1a3522];
+const BARN_REDS = [0x8a2a1f, 0x7a2419, 0x9c3426];
+
+/** Prisma triangular (tejados a dos aguas), base en y = 0. */
+function prismGeometry() {
+  const v = [
+    [-0.5, 0, -0.5], [0.5, 0, -0.5], [0, 1, -0.5],
+    [-0.5, 0, 0.5], [0.5, 0, 0.5], [0, 1, 0.5],
+  ];
+  const tris = [[0, 2, 1], [3, 4, 5], [0, 3, 5], [0, 5, 2], [1, 2, 5], [1, 5, 4], [0, 1, 4], [0, 4, 3]];
+  const pos = [];
+  for (const t of tris) for (const i of t) pos.push(...v[i]);
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.computeVertexNormals();
+  return g;
+}
+
+/** Aspas de aerogenerador (tres palas y buje). */
+function bladesGeometry() {
+  const parts = [];
+  for (let i = 0; i < 3; i++) {
+    const b = new THREE.BoxGeometry(0.9, 15, 0.25);
+    b.translate(0, 7.8, 0);
+    b.rotateZ((i * Math.PI * 2) / 3);
+    parts.push(b.toNonIndexed());
+  }
+  const hub = new THREE.SphereGeometry(0.9, 12, 8).toNonIndexed();
+  hub.deleteAttribute('uv');
+  for (const p of parts) p.deleteAttribute('uv');
+  const all = parts.concat([hub]);
+  // unir a mano (mismos atributos)
+  let n = 0;
+  for (const g of all) n += g.attributes.position.count;
+  const pos = new Float32Array(n * 3), nor = new Float32Array(n * 3);
+  let o = 0;
+  for (const g of all) {
+    pos.set(g.attributes.position.array, o * 3);
+    nor.set(g.attributes.normal.array, o * 3);
+    o += g.attributes.position.count;
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+  return g;
+}
 const CROWN_LIGHTS = [
   [2.4, 1.7, 0.8],  // dorado
   [2.4, 2.4, 2.6],  // blanco
@@ -88,6 +137,10 @@ export class World {
     this.cache = new Map();     // datos de celda (puros, sin mallas)
     this.loaded = new Map();    // celdas con mallas en escena
     this.collected = new Set(); // monedas ya recogidas
+    this.biomes = new Biomes(1);
+    this.spinners = [];         // aspas de aerogeneradores cargadas
+    this.bladesGeo = bladesGeometry();
+    this.bladesMat = new THREE.MeshStandardMaterial({ color: 0xf2f2f2, roughness: 0.5 });
 
     const box = new THREE.BoxGeometry(1, 1, 1);
     box.translate(0, 0.5, 0);
@@ -139,12 +192,12 @@ export class World {
       glass: new Pool(scene, box, this.glassMat, 3000),
       taper: new Pool(scene, taper, this.glassMat, 200),
       box: new Pool(scene, box, std, 6000),
-      cyl: new Pool(scene, cyl, std, 5000),
+      cyl: new Pool(scene, cyl, std, 9000),
       metal: new Pool(scene, cyl8, metal, 1500),
       metalCone: new Pool(scene, cone, metal, 400),
       pole: new Pool(scene, cyl8, std, 3500, { cast: false }),
-      cone: new Pool(scene, cone, std, 800),
-      crown: new Pool(scene, crown, leaf, 3500),
+      cone: new Pool(scene, cone, std, 9000),
+      crown: new Pool(scene, crown, leaf, 5000),
       glow: new Pool(scene, box, glow, 5000, { cast: false, receive: false }),
       glowCyl: new Pool(scene, cyl8, glow, 800, { cast: false, receive: false }),
       lpool: new Pool(scene, poolGeo, makeLightPoolMaterial(), 3500, noShadow),
@@ -153,14 +206,13 @@ export class World {
       coin: new Pool(scene, coinGeo, this.coinMat, 3000, noShadow),
       gem: new Pool(scene, gemGeo, this.gemMat, 400, noShadow),
       water: new Pool(scene, box, this.waterMat, 400, { cast: false, color: false }),
+      prism: new Pool(scene, prismGeometry(), std, 600),
+      rock: new Pool(scene, crown, leaf, 1500),
     };
     this.pools.lpool.mesh.renderOrder = 1;
 
-    // Suelo infinito: un plano grande que sigue al tren; el dibujo depende de la posición en mundo.
-    this.ground = new THREE.Mesh(new THREE.PlaneGeometry(2000, 2000), makeGroundMaterial());
-    this.ground.rotation.x = -Math.PI / 2;
-    this.ground.receiveShadow = true;
-    scene.add(this.ground);
+    // Suelo con relieve que sigue al tren (ciudad plana, campo y montañas).
+    this.terrain = new Terrain(scene, () => this.biomes);
   }
 
   reset(seed) {
@@ -168,6 +220,18 @@ export class World {
     this.cache.clear();
     this.collected.clear();
     this.seed = seed;
+    this.biomes = new Biomes(seed);
+    this.terrain.reset();
+  }
+
+  /** ¿Es ciudad la celda que contiene (x, z)? */
+  isCity(x, z) {
+    return this.cell(Math.floor(x / CELL_X), Math.floor(z / CELL_Z)).city;
+  }
+
+  /** Altura del terreno natural (sin edificios ni árboles). */
+  groundAt(x, z) {
+    return this.biomes.ground(x, z);
   }
 
   // ---------- Barrios ----------
@@ -210,9 +274,15 @@ export class World {
     const X0 = cx * CELL_X, Z0 = cz * CELL_Z;
     const dist = Math.hypot((cx + 0.5) * CELL_X, (cz + 0.5) * CELL_Z);
     const nearStart = dist < 110;
+    const isCity = nearStart || this.biomes.city(X0 + CELL_X / 2, Z0 + CELL_Z / 2) > 0.58;
+    if (!isCity) {
+      const c = { cx, cz, key: cx + ',' + cz, type: 'plains', city: false, obstacles: [], parts: [], coins: [], vents: [], dyn: [] };
+      this.genNature({ c, r, rr, pick, dist }, X0, Z0);
+      return c;
+    }
     let type = this.district(cx, cz);
     if (nearStart && type === 'park') type = 'mixed';
-    const c = { cx, cz, key: cx + ',' + cz, type, obstacles: [], parts: [], coins: [], vents: [] };
+    const c = { cx, cz, key: cx + ',' + cz, type, city: true, obstacles: [], parts: [], coins: [], vents: [], dyn: [] };
     const ctx = { c, r, rr, pick, nearStart, dist, type };
 
     const lot = [
@@ -277,10 +347,149 @@ export class World {
     }
   }
 
-  tree(c, x, z, cr, trunk, color) {
-    c.parts.push({ pool: 'cyl', center: [x, 0, z], scale: [0.2, trunk + cr * 0.5, 0.2], color: 0x4a3426 });
-    c.parts.push({ pool: 'crown', center: [x, trunk + cr * 0.9, z], scale: [cr, cr * 1.2, cr], color });
-    c.obstacles.push({ x0: x - cr * 0.8, x1: x + cr * 0.8, z0: z - cr * 0.8, z1: z + cr * 0.8, h: trunk + cr * 2, tower: false });
+  tree(c, x, z, cr, trunk, color, y = 0) {
+    c.parts.push({ pool: 'cyl', center: [x, y - 0.5, z], scale: [0.2, trunk + cr * 0.5 + 0.5, 0.2], color: 0x4a3426 });
+    c.parts.push({ pool: 'crown', center: [x, y + trunk + cr * 0.9, z], scale: [cr, cr * 1.2, cr], color });
+    c.obstacles.push({ x0: x - cr * 0.8, x1: x + cr * 0.8, z0: z - cr * 0.8, z1: z + cr * 0.8, h: y + trunk + cr * 2, tower: false, soft: true });
+  }
+
+  pine(c, x, z, y, s, color) {
+    c.parts.push({ pool: 'cyl', center: [x, y - 0.5, z], scale: [0.25 * s, 2.2 * s, 0.25 * s], color: 0x3d2a1e });
+    c.parts.push({ pool: 'cone', center: [x, y + 1.2 * s, z], scale: [2.1 * s, 4.4 * s, 2.1 * s], color });
+    c.parts.push({ pool: 'cone', center: [x, y + 3.6 * s, z], scale: [1.5 * s, 3.8 * s, 1.5 * s], color });
+    c.obstacles.push({ x0: x - 1.4 * s, x1: x + 1.4 * s, z0: z - 1.4 * s, z1: z + 1.4 * s, h: y + 7.2 * s, tower: false, soft: true });
+  }
+
+  /** Celdas de naturaleza: llanuras con granjas y lagos, o montañas con pinares y nieve. */
+  genNature(ctx, X0, Z0) {
+    const { c, r, rr, pick } = ctx;
+    const b = this.biomes;
+    b.ground(X0 + CELL_X / 2, Z0 + CELL_Z / 2);
+    const mountain = b.m > 0.45;
+    c.type = mountain ? 'mountain' : 'plains';
+    const M = 3; // margen dentro de la celda
+    const rp = () => [rr(X0 + M, X0 + CELL_X - M), rr(Z0 + M, Z0 + CELL_Z - M)];
+    const g = (x, z) => b.ground(x, z);
+    // pendiente aproximada en un punto
+    const flatEnough = (x, z, rad, tol) => {
+      const h0 = g(x, z);
+      for (const [dx, dz] of [[rad, 0], [-rad, 0], [0, rad], [0, -rad]]) if (Math.abs(g(x + dx, z + dz) - h0) > tol) return false;
+      return !b.water;
+    };
+
+    if (mountain) {
+      const n = 10 + Math.floor(r() * 16);
+      for (let i = 0; i < n; i++) {
+        const [x, z] = rp();
+        const y = g(x, z);
+        if (b.water || y > 64 + r() * 8) continue;
+        this.pine(c, x, z, y, rr(0.8, 1.4), pick(PINE_GREENS));
+      }
+      const rocks = Math.floor(r() * 4);
+      for (let i = 0; i < rocks; i++) {
+        const [x, z] = rp();
+        const y = g(x, z);
+        const s = rr(0.8, 2.2);
+        c.parts.push({ pool: 'rock', center: [x, y + s * 0.3, z], scale: [s * 1.3, s, s * 1.1], color: pick([0x6b6662, 0x7d7873, 0x5a5652]) });
+        c.obstacles.push({ x0: x - s, x1: x + s, z0: z - s, z1: z + s, h: y + s * 1.2, tower: false });
+      }
+      if (r() < 0.07) {
+        const [x, z] = rp();
+        if (flatEnough(x, z, 4, 1.6)) this.cabin(c, x, z, g(x, z), rr, r);
+      }
+      // antenas en las cumbres: infranqueables, con baliza roja
+      const [mx, mz] = [X0 + CELL_X / 2 + rr(-15, 15), Z0 + CELL_Z / 2 + rr(-8, 8)];
+      const my = g(mx, mz);
+      if (my > 55 && r() < 0.18) this.mast(c, mx, mz, my, rr);
+    } else {
+      // granja
+      if (r() < 0.16) {
+        const [x, z] = [X0 + CELL_X / 2 + rr(-12, 12), Z0 + CELL_Z / 2 + rr(-6, 6)];
+        if (flatEnough(x, z, 7, 1.4)) this.farm(c, x, z, rr, r, pick, g);
+      } else if (r() < 0.09) {
+        const [x, z] = [X0 + CELL_X / 2 + rr(-20, 20), Z0 + CELL_Z / 2 + rr(-8, 8)];
+        if (!b.water && g(x, z) > 2) this.turbine(c, x, z, g(x, z), rr);
+      }
+      // bosquecillos
+      const groves = Math.floor(r() * 3);
+      for (let k = 0; k < groves; k++) {
+        const [gx, gz] = rp();
+        const m = 3 + Math.floor(r() * 6);
+        for (let i = 0; i < m; i++) {
+          const x = Math.min(X0 + CELL_X - M, Math.max(X0 + M, gx + rr(-7, 7)));
+          const z = Math.min(Z0 + CELL_Z - M, Math.max(Z0 + M, gz + rr(-6, 6)));
+          const y = g(x, z);
+          if (b.water) continue;
+          this.tree(c, x, z, rr(1.6, 2.8), rr(2, 3.4), pick(TREE_GREENS), y);
+        }
+      }
+    }
+    // monedas en línea siguiendo el terreno
+    if (r() < 0.6) {
+      const a = r() * Math.PI * 2;
+      let [x, z] = [X0 + CELL_X / 2 + rr(-15, 15), Z0 + CELL_Z / 2 + rr(-8, 8)];
+      for (let i = 0; i < 6; i++) {
+        const px = x + Math.cos(a) * (i - 2.5) * 4, pz = z + Math.sin(a) * (i - 2.5) * 4;
+        c.coins.push({ x: px, y: g(px, pz) + 1.9, z: pz, gem: false });
+      }
+      if (r() < 0.15) c.coins.push({ x, y: g(x, z) + 2.6, z, gem: true });
+    }
+  }
+
+  farm(c, x, z, rr, r, pick, g) {
+    const w = rr(8, 11), d = rr(6.5, 8);
+    const base = Math.min(g(x - w / 2, z - d / 2), g(x + w / 2, z - d / 2), g(x - w / 2, z + d / 2), g(x + w / 2, z + d / 2)) - 0.3;
+    const h = rr(4.5, 6);
+    const red = pick(BARN_REDS);
+    c.parts.push({ pool: 'box', b: [x - w / 2, base, z - d / 2, x + w / 2, base + h, z + d / 2], color: red });
+    c.parts.push({ pool: 'prism', center: [x, base + h, z], scale: [w + 0.6, rr(2.6, 3.4), d + 0.6], rotY: Math.PI / 2, color: 0x3a3330 });
+    c.parts.push({ pool: 'box', b: [x - w / 2 - 0.05, base, z - 1.4, x - w / 2 + 0.05, base + 3.6, z + 1.4], color: 0xeeeeee });
+    c.obstacles.push({ x0: x - w / 2 - 0.3, x1: x + w / 2 + 0.3, z0: z - d / 2 - 0.3, z1: z + d / 2 + 0.3, h: base + h + 3.4, tower: false });
+    // silo
+    const sx = x + w / 2 + 3.2, sz = z + rr(-1.5, 1.5);
+    const sb = g(sx, sz) - 0.3;
+    const sh = rr(10, 14);
+    c.parts.push({ pool: 'cyl', center: [sx, sb, sz], scale: [2.1, sh, 2.1], color: 0xb9bcc0 });
+    c.parts.push({ pool: 'metalCone', center: [sx, sb + sh, sz], scale: [2.25, 1.8, 2.25], color: 0xd0d3d6 });
+    c.obstacles.push({ x0: sx - 2.2, x1: sx + 2.2, z0: sz - 2.2, z1: sz + 2.2, h: sb + sh + 1.8, tower: false });
+    // balas de heno
+    const n = 2 + Math.floor(r() * 4);
+    for (let i = 0; i < n; i++) {
+      const hx = x + rr(-14, 14), hz = z + (r() < 0.5 ? -1 : 1) * rr(d / 2 + 3, d / 2 + 7);
+      const hy = g(hx, hz);
+      c.parts.push({ pool: 'cyl', center: [hx + 0.8, hy + 0.85, hz], scale: [0.85, 1.6, 0.85], rot: [0, r() * 3, Math.PI / 2], color: 0xc9a54a });
+      c.obstacles.push({ x0: hx - 1, x1: hx + 1, z0: hz - 1, z1: hz + 1, h: hy + 1.7, tower: false, soft: true });
+    }
+  }
+
+  cabin(c, x, z, y, rr, r) {
+    const w = rr(5, 6.5), d = rr(4, 5), h = 3.2;
+    c.parts.push({ pool: 'box', b: [x - w / 2, y - 0.4, z - d / 2, x + w / 2, y + h, z + d / 2], color: 0x5e3f28 });
+    c.parts.push({ pool: 'prism', center: [x, y + h, z], scale: [w + 0.8, 2.2, d + 0.8], rotY: Math.PI / 2, color: 0x2e2a28 });
+    c.parts.push({ pool: 'box', b: [x + w / 2 - 1.2, y + h, z - 0.4, x + w / 2 - 0.4, y + h + 2.6, z + 0.4], color: 0x5a5652 });
+    c.parts.push({ pool: 'glow', b: [x - 0.5, y + 1, z + d / 2, x + 0.5, y + 2, z + d / 2 + 0.05], color: [2.2, 1.5, 0.7] });
+    c.obstacles.push({ x0: x - w / 2 - 0.4, x1: x + w / 2 + 0.4, z0: z - d / 2 - 0.4, z1: z + d / 2 + 0.4, h: y + h + 2.6, tower: false });
+  }
+
+  mast(c, x, z, y, rr) {
+    const h = rr(38, 55);
+    c.parts.push({ pool: 'metal', center: [x, y - 1, z], scale: [0.7, h + 1, 0.7], color: 0xc4c8cc });
+    for (let k = 1; k <= 3; k++) c.parts.push({ pool: 'metal', center: [x, y + (h * k) / 4, z], scale: [1.6, 0.3, 1.6], color: 0xc4c8cc });
+    c.parts.push({ pool: 'beacon', center: [x, y + h + 0.5, z], scale: [1.4, 1.4, 1.4] });
+    c.parts.push({ pool: 'beacon', center: [x, y + h * 0.5, z], scale: [1, 1, 1] });
+    c.obstacles.push({ x0: x - 2.5, x1: x + 2.5, z0: z - 2.5, z1: z + 2.5, h: y + h, tower: true });
+  }
+
+  /** Aerogenerador: torre blanca con baliza roja (no se puede pasar por encima) y aspas que giran. */
+  turbine(c, x, z, y, rr) {
+    const h = rr(40, 50);
+    c.parts.push({ pool: 'cyl', center: [x, y - 1, z], scale: [1.2, h + 1, 1.2], color: 0xf0f0f0 });
+    const rot = rr(0, Math.PI * 2);
+    const fx = Math.sin(rot), fz = Math.cos(rot);
+    c.parts.push({ pool: 'box', center: [x, y + h, z], scale: [2.2, 2.2, 5.5], rotY: rot, color: 0xf4f4f4 });
+    c.parts.push({ pool: 'beacon', center: [x - fx * 2, y + h + 2.6, z - fz * 2], scale: [1.1, 1.1, 1.1] });
+    c.dyn.push({ type: 'blades', x: x + fx * 3, y: y + h + 1.1, z: z + fz * 3, rotY: rot, phase: rr(0, 6) });
+    c.obstacles.push({ x0: x - 2.5, x1: x + 2.5, z0: z - 2.5, z1: z + 2.5, h: y + h + 16, tower: true });
   }
 
   genPark(ctx, lot) {
@@ -602,13 +811,18 @@ export class World {
 
   // ---------- Consultas de altura ----------
 
-  heightAt(x, z, r = 0, towers = false) {
+  /**
+   * Altura de la superficie en (x, z): terreno, edificios y objetos, con un margen r.
+   * towers: incluir rascacielos. soft: incluir árboles y heno (los pilares de la vía los ignoran).
+   */
+  heightAt(x, z, r = 0, towers = false, soft = true) {
     const c = this.cell(Math.floor(x / CELL_X), Math.floor(z / CELL_Z));
-    let h = 0;
+    let h = c.city ? 0 : this.biomes.ground(x, z);
     const obs = c.obstacles;
     for (let i = 0; i < obs.length; i++) {
       const o = obs[i];
       if (!towers && o.tower) continue;
+      if (!soft && o.soft) continue;
       if (x + r > o.x0 && x - r < o.x1 && z + r > o.z0 && z - r < o.z1 && o.h > h) h = o.h;
     }
     return h;
@@ -654,7 +868,7 @@ export class World {
         if (Math.abs(c.cx - ccx) > rx * 3 || Math.abs(c.cz - ccz) > rz * 3) this.cache.delete(key);
       }
     }
-    this.ground.position.set(pos.x, 0, pos.z);
+    this.terrain.update(pos);
     for (const k in this.pools) this.pools[k].flush();
   }
 
@@ -670,7 +884,8 @@ export class World {
         _p.set(part.center[0], part.center[1], part.center[2]);
         _s.set(part.scale[0], part.scale[1], part.scale[2]);
         const rot = part.rotY !== undefined ? part.rotY : part.pool === 'crown' ? (part.center[0] * 7.31 + part.center[2]) % 6.28 : 0;
-        _q.setFromAxisAngle(Y_AXIS, rot);
+        if (part.rot) _q.setFromEuler(_e.set(part.rot[0], part.rot[1], part.rot[2]));
+        else _q.setFromAxisAngle(Y_AXIS, rot);
         m = _m.compose(_p, _q, _s);
       }
       let col = null;
@@ -691,7 +906,22 @@ export class World {
       const slot = pool.alloc(_m.compose(_p, _q, _s));
       if (slot >= 0) coins.push({ id, x: coin.x, y: coin.y, z: coin.z, gem: coin.gem, pool, slot });
     });
-    this.loaded.set(c.key, { cx, cz, slots, coins, vents: c.vents });
+    const dyn = [];
+    for (const d of c.dyn) {
+      if (d.type === 'blades') {
+        const g = new THREE.Group();
+        g.position.set(d.x, d.y, d.z);
+        g.rotation.y = d.rotY;
+        const m = new THREE.Mesh(this.bladesGeo, this.bladesMat);
+        m.castShadow = true;
+        m.userData.p0 = d.phase;
+        g.add(m);
+        this.scene.add(g);
+        this.spinners.push(m);
+        dyn.push(g);
+      }
+    }
+    this.loaded.set(c.key, { cx, cz, slots, coins, vents: c.vents, dyn });
   }
 
   unloadCell(key) {
@@ -699,6 +929,11 @@ export class World {
     if (!lc) return;
     for (const [pool, slot] of lc.slots) pool.release(slot);
     for (const coin of lc.coins) coin.pool.release(coin.slot);
+    for (const g of lc.dyn) {
+      this.scene.remove(g);
+      const i = this.spinners.indexOf(g.children[0]);
+      if (i >= 0) this.spinners.splice(i, 1);
+    }
     this.loaded.delete(key);
   }
 
@@ -731,5 +966,6 @@ export class World {
     this.gemMat.userData.uniforms.uTime.value = time;
     this.billMat.userData.uniforms.uTime.value = time;
     this.beaconMat.emissiveIntensity = Math.sin(time * 4.2) > 0.1 ? 5 : 0.4;
+    for (const s of this.spinners) s.rotation.z = time * 1.4 + s.userData.p0;
   }
 }

@@ -92,10 +92,13 @@ export class Traffic {
   }
 
   spawn(car, pos, i) {
+    let ok = false;
     for (let tries = 0; tries < 12; tries++) {
       const a = Math.random() * Math.PI * 2;
       const rad = 30 + Math.random() * 240;
       const px = pos.x + Math.cos(a) * rad, pz = pos.z + Math.sin(a) * rad;
+      // solo hay tráfico en la ciudad
+      if (!this.world.isCity(px, pz)) continue;
       if (Math.random() < 0.55) {
         const ai = Math.round(px / CELL_X);
         car.axis = 'z';
@@ -110,7 +113,17 @@ export class Traffic {
         car.along = px;
       }
       this.place(car);
-      if (car.pos.distanceTo(pos) > 28) break;
+      if (car.pos.distanceTo(pos) > 28 && this.world.isCity(car.pos.x, car.pos.z)) {
+        ok = true;
+        break;
+      }
+    }
+    if (!ok) {
+      // sin calles cerca: el coche espera escondido y lo vuelve a intentar
+      car.state = 'idle';
+      car.t = 0;
+      car.pos.set(0, -1000, 0);
+      return;
     }
     car.speed = 7 + Math.random() * 6;
     car.state = 'drive';
@@ -137,11 +150,14 @@ export class Traffic {
     const hits = [];
     for (let i = 0; i < N; i++) {
       const car = this.cars[i];
-      if (car.state === 'drive') {
+      if (car.state === 'idle') {
+        car.t += dt;
+        if (car.t > 1.5 + Math.random()) this.spawn(car, trainPos, i);
+      } else if (car.state === 'drive') {
         car.along += car.dir * car.speed * dt;
         this.place(car);
         const dx = car.pos.x - trainPos.x, dz = car.pos.z - trainPos.z;
-        if (dx * dx + dz * dz > 300 * 300) {
+        if (dx * dx + dz * dz > 300 * 300 || !this.world.isCity(car.pos.x, car.pos.z)) {
           this.spawn(car, trainPos, i);
         } else if (low) {
           const ex = car.pos.x - front.x, ez = car.pos.z - front.z;
