@@ -33,7 +33,19 @@ Desde el menú, **Modo bar** (o la tecla `B`): trabajas de camarero en primera p
 - **Soltar** (botón, tecla `Q` o clic derecho): tira lo que llevas en la mano o, con las manos libres, vacía la tabla.
 - Al terminar de comer, el cliente deja el plato sucio y el dinero. Pulsa su sitio para cobrar y recoger: hasta que no lo limpies, no se sienta nadie más ahí.
 - Cuanto antes completes el pedido, más propina. El turno dura 4 minutos; con 3 clientes enfadados se cierra el bar.
-- Ratón: mira moviendo el cursor o arrastrando; también con `←` `→`. Móvil: arrastra para mirar y toca para usar.
+- Todo el mostrador se ve a la vez, con etiquetas. Lo que tienes bajo el cursor se ilumina en azul, y en verde dónde puedes usar lo que llevas.
+- Arrastra (o `←` `→`) para girar la vista si hace falta, sobre todo en el móvil.
+
+## Modo azafato
+
+Desde el menú, **Modo azafato** (o la tecla `V`): recorres un vagón de pasajeros en primera persona.
+
+- Cuando un pasajero pulsa el botón de llamada suena el "ding-dong", se enciende su luz y aparece lo que quiere: agua, zumo, café, sándwich, galletas o manta.
+- **Toca al pasajero** (o su comanda a la derecha) y el azafato camina solo hasta su asiento. Si llevas lo que pide, se lo da.
+- **Botones de la cocina** (abajo, o teclas `1`–`6`): el azafato va a la cocina y lo coge. El café tarda un poco en hacerse.
+- La bandeja lleva hasta 3 cosas; toca una para devolverla.
+- `W` `S` o `↑` `↓` para andar a mano; arrastra para mirar.
+- Cuanto antes atiendes, más propina. Si 3 pasajeros se cansan de esperar, te despiden.
 
 ## El mundo
 
@@ -67,6 +79,7 @@ En el repositorio: **Settings → Pages → Build and deployment → Deploy from
 - `src/effects.js`: humo, chispas, fuego y el dron constructor con la vista previa de la vía.
 - `src/audio.js`: todos los sonidos sintetizados con Web Audio (sin archivos de audio).
 - `src/missions.js`: estaciones, pasajeros, cuenta atrás y vidas.
+- `src/steward/`: modo azafato (vagón de pasajeros, cocina y bandeja).
 - `src/bar/`: modo bar (vagón restaurante, clientes con cara y gestos, comida y bebida).
 - `src/main.js`: bucle de juego, cámara, puntuación, menús y modo demostración (en el menú juega una IA).
 

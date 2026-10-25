@@ -242,6 +242,11 @@ export class Sfx {
     }
   }
 
+  step() {
+    if (!this.ctx) return;
+    this.noiseBurst({ freq: 180 + Math.random() * 60, type: 'lowpass', q: 0.8, gain: 0.12, attack: 0.004, decay: 0.07 });
+  }
+
   plop() {
     if (!this.ctx) return;
     this.tone(220, { type: 'sine', gain: 0.15, decay: 0.12, slide: 0.5 });

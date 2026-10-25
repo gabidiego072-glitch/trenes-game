@@ -103,7 +103,11 @@
         <button id="playBtn" class="primary">Jugar</button>
         <button id="barBtn" class="secondary">
           <span class="sec-title">Modo bar</span>
-          <span class="sec-sub">Sirve a los pasajeros en el vagón restaurante</span>
+          <span class="sec-sub">Cocina y sirve en el vagón restaurante</span>
+        </button>
+        <button id="stewBtn" class="secondary">
+          <span class="sec-title">Modo azafato</span>
+          <span class="sec-sub">Lleva a cada pasajero lo que pide</span>
         </button>
       </div>
       <div class="menu-foot">
@@ -162,6 +166,46 @@
     </button>
     <div class="bar-help">Pulsa para coger y servir · arrastra para mirar</div>
   </div>
+
+  <div id="stewHud" hidden>
+    <div class="bar-top">
+      <div class="bar-chip"><span class="lbl">Propinas</span><strong id="sMoney">$0</strong></div>
+      <div class="bar-chip"><span class="lbl">Turno</span><strong id="sClock">4:00</strong></div>
+      <div class="bar-chip"><span class="lbl">Reseñas</span><span id="sStars" class="stars"><span>★</span><span>★</span><span>★</span></span></div>
+    </div>
+    <div id="sTickets" class="bar-tickets s-tickets" aria-label="Pasajeros que llaman"></div>
+    <div class="s-bottom">
+      <div class="s-tray-wrap">
+        <span class="lbl">Bandeja</span>
+        <div id="sTray" class="s-tray"></div>
+      </div>
+      <div id="sBrew" class="s-brew" hidden><span>Café</span><i></i></div>
+      <div id="sGalley" class="s-galley" aria-label="Cocina"></div>
+    </div>
+    <div id="sHint" class="bar-hint s-hint"></div>
+    <div id="sPop" class="bar-pop"></div>
+    <button id="sPause" class="icon-btn" aria-label="Pausa" title="Pausa (P)">
+      <svg viewBox="0 0 24 24" width="20" height="20"><rect x="6" y="5" width="4" height="14" rx="1" fill="currentColor"/><rect x="14" y="5" width="4" height="14" rx="1" fill="currentColor"/></svg>
+    </button>
+  </div>
+
+  <section id="stewOver" class="screen" hidden>
+    <div class="panel small">
+      <h2 id="soTitle">Fin del trayecto</h2>
+      <p id="soReason" class="over-reason"></p>
+      <div id="soBest" class="new-best" hidden>¡Nuevo récord de propinas!</div>
+      <div class="stats">
+        <div><span class="lbl">Propinas</span><strong id="soMoney">$0</strong></div>
+        <div><span class="lbl">Pasajeros atendidos</span><strong id="soServed">0</strong></div>
+        <div><span class="lbl">Cosas entregadas</span><strong id="soDeliv">0</strong></div>
+        <div><span class="lbl">Se enfadaron</span><strong id="soAngry">0</strong></div>
+        <div><span class="lbl">Metros andados</span><strong id="soWalk">0 m</strong></div>
+        <div><span class="lbl">Récord</span><strong id="soRecord">$0</strong></div>
+      </div>
+      <button id="soAgain" class="primary">Otro trayecto</button>
+      <button id="soMenu" class="ghost">Menú</button>
+    </div>
+  </section>
 
   <section id="barOver" class="screen" hidden>
     <div class="panel small">

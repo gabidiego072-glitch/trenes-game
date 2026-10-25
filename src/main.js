@@ -18,6 +18,7 @@ import { Input } from './input.js';
 import { Missions } from './missions.js';
 import { Traffic } from './traffic.js';
 import { BarMode } from './bar/bar.js';
+import { StewardMode } from './steward/steward.js';
 
 // ---------- DOM ----------
 const $ = (id) => document.getElementById(id);
@@ -135,6 +136,9 @@ const fire = new Particles(scene, 300, { additive: true, soft: true, gravity: 3,
 const sfx = new Sfx();
 scene.add(camera); // la cámara lleva colgado lo que tienes en la mano en el modo bar
 const bar = new BarMode(camera, sfx);
+const steward = new StewardMode(camera, sfx);
+/** Modo de interior activo (bar o azafato), si lo hay. */
+const inside = () => (G.game === 'bar' ? bar : G.game === 'steward' ? steward : null);
 const input = new Input(canvas);
 
 const C_SMOKE = new THREE.Color(0.78, 0.72, 0.7);
@@ -268,7 +272,7 @@ function stepRun(dt) {
 
   // la pendiente frena al subir y acelera al bajar
   const slope = track.slopeAt(G.s - 6);
-  const vTarget = G.game === 'bar' ? 12 : Math.min(MAX_SPEED, START_SPEED + G.dist * 0.0045);
+  const vTarget = G.game !== 'rails' ? 12 : Math.min(MAX_SPEED, START_SPEED + G.dist * 0.0045);
   const acc = (vTarget - G.v) * 0.45 - slope * 9.8 * 0.5;
   G.v = clamp(G.v + acc * dt, MIN_SPEED, MAX_SPEED + 8);
   const ds = G.v * dt;
@@ -282,7 +286,7 @@ function stepRun(dt) {
   track.flush();
 
   if (G.s >= track.endS - 1.5) {
-    if (G.game === 'bar') {
+    if (G.game !== 'rails') {
       recoverBar();
       return;
     }
@@ -522,9 +526,10 @@ function gameOver(reason = 'crash') {
 // ---------- Cámara ----------
 function updateCamera(dt, snap = false) {
   const P = train.position;
-  if (G.game === 'bar' && bar.active) {
+  const mode = inside();
+  if (mode && mode.active) {
     // primera persona dentro del vagón restaurante
-    bar.applyCamera(camera, dt);
+    mode.applyCamera(camera, dt);
     const portraitB = clamp((1.2 - camera.aspect) * 25, 0, 20);
     camera.fov = 70 + portraitB;
     camera.updateProjectionMatrix();
@@ -613,7 +618,7 @@ function updateHud(dt) {
 
 // ---------- Menús ----------
 function setTouchButtons(on) {
-  ui.tl.hidden = ui.tr.hidden = !(on && touch && G.game !== 'bar');
+  ui.tl.hidden = ui.tr.hidden = !(on && touch && G.game === 'rails');
 }
 
 // ---------- Modo bar ----------
@@ -621,33 +626,36 @@ let hoverQ = null;
 let lastHover = 0;
 let pd = null;
 const barOn = () => G.game === 'bar' && G.mode === 'playing' && bar.active;
+const insideOn = () => G.mode === 'playing' && inside() && inside().active;
 canvas.addEventListener('pointerdown', (e) => {
-  if (!barOn() || e.button !== 0) return;
+  if (!insideOn() || e.button !== 0) return;
   pd = { id: e.pointerId, x: e.clientX, y: e.clientY, lx: e.clientX, ly: e.clientY, drag: false };
 });
 window.addEventListener('pointermove', (e) => {
-  if (!barOn()) return;
+  if (!insideOn()) return;
+  const mode = inside();
   const nx = e.clientX / innerWidth, ny = e.clientY / innerHeight;
   if (pd && pd.id === e.pointerId) {
     if (!pd.drag && Math.hypot(e.clientX - pd.x, e.clientY - pd.y) > 8) pd.drag = true;
-    if (pd.drag) bar.drag(e.clientX - pd.lx, e.clientY - pd.ly);
+    if (pd.drag) mode.drag(e.clientX - pd.lx, e.clientY - pd.ly);
     pd.lx = e.clientX;
     pd.ly = e.clientY;
   } else {
-    bar.pointerLook(nx, ny, e.pointerType === 'mouse');
+    mode.pointerLook(nx, ny, e.pointerType === 'mouse');
     if (e.pointerType === 'mouse') hoverQ = [nx, ny, e.clientX, e.clientY];
   }
 });
 window.addEventListener('pointerup', (e) => {
-  if (!barOn() || !pd || pd.id !== e.pointerId) return;
-  if (!pd.drag) bar.click(e.clientX / innerWidth, e.clientY / innerHeight);
+  if (!insideOn() || !pd || pd.id !== e.pointerId) return;
+  if (!pd.drag) inside().click(e.clientX / innerWidth, e.clientY / innerHeight);
   pd = null;
 });
 
 function startBar() {
   sfx.init();
-  if (bar.active) bar.stop();
+  leaveInside();
   G.game = 'bar';
+  world.viewDist = 260;
   G.mode = 'playing';
   resetRun(true); // el tren va solo
   ui.menu.hidden = true;
@@ -663,9 +671,57 @@ function startBar() {
 }
 
 function stopBar() {
-  bar.stop();
+  leaveInside();
+}
+
+/** Sale del modo de interior en curso y vuelve todo a la normalidad. */
+function leaveInside() {
+  if (bar.active) bar.stop();
+  if (steward.active) steward.stop();
   G.game = 'rails';
+  world.viewDist = 0;
   $('barOver').hidden = true;
+  $('stewOver').hidden = true;
+}
+
+function startSteward() {
+  sfx.init();
+  leaveInside();
+  G.game = 'steward';
+  world.viewDist = 260;
+  G.mode = 'playing';
+  resetRun(true);
+  ui.menu.hidden = true;
+  ui.over.hidden = true;
+  ui.pause.hidden = true;
+  ui.hud.hidden = true;
+  ui.warn.hidden = true;
+  setTouchButtons(false);
+  steward.start(train);
+  updateCamera(0, true);
+  sfx.whistle();
+}
+
+function stewOver() {
+  G.mode = 'over';
+  const r = steward.results();
+  let best = Number(storageGet('vialibre.stewBest', '0')) || 0;
+  const isBest = r.money > best;
+  if (isBest) {
+    best = r.money;
+    storageSet('vialibre.stewBest', String(best));
+  }
+  $('soTitle').textContent = steward.stars <= 0 ? '¡Te han despedido!' : 'Fin del trayecto';
+  $('soReason').textContent = steward.stars <= 0 ? 'Demasiados pasajeros se quedaron sin atender.' : 'El tren llega a su destino.';
+  $('soMoney').textContent = '$' + r.money;
+  $('soServed').textContent = r.served;
+  $('soDeliv').textContent = r.deliveries;
+  $('soAngry').textContent = r.angry;
+  $('soWalk').textContent = r.walked + ' m';
+  $('soRecord').textContent = '$' + best;
+  $('soBest').hidden = !isBest;
+  $('stewOver').hidden = false;
+  $('soAgain').focus();
 }
 
 /** Si el piloto automático se queda sin salida, el tren "llega a la siguiente estación" (vuelve al inicio). */
@@ -680,7 +736,7 @@ function recoverBar() {
   while (track.headS < 40) track.addPoint();
   track.flush();
   train.place(track, 0, 0, 0);
-  bar.hint('Siguiente parada…', 1.5);
+  if (inside()) inside().hint('Siguiente parada…', 1.5);
   setTimeout(() => f.classList.remove('on'), 60);
 }
 
@@ -710,6 +766,10 @@ function barOver() {
 }
 
 $('barBtn').addEventListener('click', startBar);
+$('stewBtn').addEventListener('click', startSteward);
+$('soAgain').addEventListener('click', startSteward);
+$('soMenu').addEventListener('click', toMenu);
+$('sPause').addEventListener('click', () => pauseGame());
 $('boAgain').addEventListener('click', startBar);
 $('boMenu').addEventListener('click', toMenu);
 $('bPause').addEventListener('click', () => pauseGame());
@@ -719,7 +779,7 @@ canvas.addEventListener('contextmenu', (e) => {
 });
 
 function startGame() {
-  if (G.game === 'bar') stopBar();
+  if (G.game !== 'rails') leaveInside();
   sfx.init();
   G.mode = 'playing';
   resetRun(false);
@@ -751,7 +811,7 @@ function resumeGame() {
 
 function toMenu() {
   missions.reset();
-  if (G.game === 'bar') stopBar();
+  if (G.game !== 'rails') leaveInside();
   ui.pause.hidden = true;
   ui.over.hidden = true;
   ui.hud.hidden = true;
@@ -788,6 +848,7 @@ input.on('key', (code) => {
     if (G.mode === 'menu' || G.mode === 'over') {
       if (document.activeElement && document.activeElement.tagName === 'BUTTON') return; // el botón ya lo gestiona
       if (G.game === 'bar') startBar();
+      else if (G.game === 'steward') startSteward();
       else startGame();
     } else if (G.mode === 'paused') resumeGame();
   } else if (code === 'Escape' || code === 'KeyP') {
@@ -795,6 +856,8 @@ input.on('key', (code) => {
     else if (G.mode === 'paused') resumeGame();
   } else if (code === 'KeyM') toggleMute();
   else if (code === 'KeyB' && G.mode === 'menu') startBar();
+  else if (code === 'KeyV' && G.mode === 'menu') startSteward();
+  else if (G.game === 'steward' && insideOn()) steward.key(code);
   else if ((code === 'KeyQ' || code === 'KeyX' || code === 'Backspace') && barOn()) bar.drop();
 });
 document.addEventListener('visibilitychange', () => {
@@ -850,6 +913,9 @@ function frame(now) {
     }
     if (bar.update(dt, G.time) === 'over') barOver();
   }
+  if (G.game === 'steward' && G.mode === 'playing') {
+    if (steward.update(dt, G.time, input.keys) === 'over') stewOver();
+  }
   else if (G.mode === 'crash') stepCrash(dt);
 
   if (G.mode !== 'paused') {
@@ -864,8 +930,8 @@ function frame(now) {
     updateSkyBiome(dt);
     const building = G.mode === 'playing' || G.mode === 'menu';
     builder.update(G.time, track.head, track, world, building ? sparks : null, building && track.blockedAt === null);
-    if (G.game === 'bar') builder.group.visible = false;
-    builder.preview.visible = G.game !== 'bar';
+    if (G.game !== 'rails') builder.group.visible = false;
+    builder.preview.visible = G.game === 'rails';
     updateCamera(dt);
   }
   sfx.update(dt, G.v, G.mode === 'playing');
@@ -934,4 +1000,4 @@ function simulate(n, dt, steerFn) {
   updateCamera(1, true);
   return { mode: G.mode, dist: G.dist, y: train.position.y, v: G.v, coins: G.coins, score: G.score };
 }
-window.__game = { G, track, world, train, renderer, camera, missions, traffic, bar, startGame, startBar, toMenu, simulate };
+window.__game = { G, track, world, train, renderer, camera, missions, traffic, bar, steward, startGame, startBar, startSteward, toMenu, simulate };

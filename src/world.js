@@ -843,21 +843,22 @@ export class World {
   update(pos, maxLoads = 10) {
     const ccx = Math.floor(pos.x / CELL_X);
     const ccz = Math.floor(pos.z / CELL_Z);
-    const rx = Math.ceil(VIEW_DIST / CELL_X) + 1;
-    const rz = Math.ceil(VIEW_DIST / CELL_Z) + 1;
+    const VD = this.viewDist || VIEW_DIST; // dentro del tren se carga menos ciudad
+    const rx = Math.ceil(VD / CELL_X) + 1;
+    const rz = Math.ceil(VD / CELL_Z) + 1;
     const missing = [];
     for (let dx = -rx; dx <= rx; dx++) {
       for (let dz = -rz; dz <= rz; dz++) {
         const cx = ccx + dx, cz = ccz + dz;
         const ex = (cx + 0.5) * CELL_X - pos.x, ez = (cz + 0.5) * CELL_Z - pos.z;
         const d2 = ex * ex + ez * ez;
-        if (d2 > VIEW_DIST * VIEW_DIST) continue;
+        if (d2 > VD * VD) continue;
         if (!this.loaded.has(cx + ',' + cz)) missing.push([d2, cx, cz]);
       }
     }
     missing.sort((a, b) => a[0] - b[0]);
     for (let i = 0; i < missing.length && i < maxLoads; i++) this.loadCell(missing[i][1], missing[i][2]);
-    const lim = (VIEW_DIST + 90) * (VIEW_DIST + 90);
+    const lim = (VD + 90) * (VD + 90);
     for (const [key, lc] of this.loaded) {
       const ex = (lc.cx + 0.5) * CELL_X - pos.x, ez = (lc.cz + 0.5) * CELL_Z - pos.z;
       if (ex * ex + ez * ez > lim) this.unloadCell(key);
