@@ -166,6 +166,94 @@ export class Sfx {
     this.tone(sec <= 2 ? 1320 : 990, { type: 'square', gain: 0.05, decay: 0.05 });
   }
 
+  // ---------- Bar ----------
+
+  /** Chisporroteo continuo de la plancha; level = cuántas cosas se están cocinando. */
+  sizzle(level) {
+    if (!this.ctx) return;
+    if (!this.sizzleGain) {
+      const src = this.ctx.createBufferSource();
+      src.buffer = this.noise;
+      src.loop = true;
+      const f = this.ctx.createBiquadFilter();
+      f.type = 'highpass';
+      f.frequency.value = 3200;
+      const am = this.ctx.createGain();
+      // crepitar: modulación rápida de volumen
+      const lfo = this.ctx.createOscillator();
+      lfo.frequency.value = 23;
+      const lfoGain = this.ctx.createGain();
+      lfoGain.gain.value = 0.5;
+      lfo.connect(lfoGain).connect(am.gain);
+      lfo.start();
+      this.sizzleGain = this.ctx.createGain();
+      this.sizzleGain.gain.value = 0;
+      src.connect(f).connect(am).connect(this.sizzleGain).connect(this.master);
+      src.start();
+    }
+    this.sizzleGain.gain.setTargetAtTime(Math.min(0.09, level * 0.03), this.ctx.currentTime, 0.15);
+  }
+
+  plop() {
+    if (!this.ctx) return;
+    this.tone(220, { type: 'sine', gain: 0.15, decay: 0.12, slide: 0.5 });
+    this.noiseBurst({ freq: 4000, type: 'highpass', gain: 0.12, decay: 0.25 });
+  }
+
+  pour() {
+    if (!this.ctx) return;
+    this.noiseBurst({ freq: 900, q: 1.5, gain: 0.12, attack: 0.05, decay: 1.0 });
+    this.tone(500, { type: 'sine', gain: 0.03, attack: 0.05, decay: 1.0, slide: 1.8 });
+  }
+
+  trash() {
+    if (!this.ctx) return;
+    this.noiseBurst({ freq: 300, type: 'lowpass', gain: 0.3, decay: 0.2 });
+    this.tone(140, { type: 'triangle', gain: 0.1, decay: 0.15 });
+  }
+
+  serveItem() {
+    if (!this.ctx) return;
+    this.tone(880, { type: 'triangle', gain: 0.1, decay: 0.12 });
+    this.noiseBurst({ freq: 2500, q: 2, gain: 0.05, decay: 0.05 });
+  }
+
+  register() {
+    if (!this.ctx) return;
+    this.noiseBurst({ freq: 1800, q: 3, gain: 0.2, decay: 0.08 });
+    this.tone(1568, { type: 'sine', gain: 0.15, decay: 0.5, when: 0.08 });
+    this.tone(2093, { type: 'sine', gain: 0.12, decay: 0.7, when: 0.12 });
+  }
+
+  bell() {
+    if (!this.ctx) return;
+    this.tone(1760, { type: 'sine', gain: 0.1, decay: 0.8 });
+    this.tone(2637, { type: 'sine', gain: 0.05, decay: 0.6 });
+  }
+
+  orderPing() {
+    if (!this.ctx) return;
+    this.tone(1046, { type: 'sine', gain: 0.07, decay: 0.15 });
+    this.tone(1318, { type: 'sine', gain: 0.07, decay: 0.2, when: 0.09 });
+  }
+
+  ding() {
+    if (!this.ctx) return;
+    this.tone(2093, { type: 'triangle', gain: 0.1, decay: 0.6 });
+  }
+
+  burn() {
+    if (!this.ctx) return;
+    for (let i = 0; i < 3; i++) this.tone(1200, { type: 'square', gain: 0.04, decay: 0.07, when: i * 0.14 });
+  }
+
+  /** Gruñido de cliente molesto (0..1 de intensidad). */
+  angry(k = 1) {
+    if (!this.ctx) return;
+    this.tone(180, { type: 'sawtooth', gain: 0.06 * k, attack: 0.03, decay: 0.35, slide: 0.7 });
+    this.tone(140, { type: 'sawtooth', gain: 0.05 * k, attack: 0.03, decay: 0.4, slide: 0.7, when: 0.05 });
+  }
+
   honk() {
     if (!this.ctx) return;
     this.tone(415, { type: 'square', gain: 0.07, attack: 0.01, decay: 0.22 });

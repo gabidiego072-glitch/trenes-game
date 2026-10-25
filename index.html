@@ -99,7 +99,13 @@
           <p>Los de luces rojas son demasiado altos. Si la vía entra en uno, el tren choca. Tienes 3 vidas para llegar a tiempo.</p>
         </div>
       </div>
-      <button id="playBtn" class="primary">Jugar</button>
+      <div class="play-row">
+        <button id="playBtn" class="primary">Jugar</button>
+        <button id="barBtn" class="secondary">
+          <span class="sec-title">Modo bar</span>
+          <span class="sec-sub">Sirve a los pasajeros en el vagón restaurante</span>
+        </button>
+      </div>
       <div class="menu-foot">
         <span>Récord: <strong id="best">0</strong></span>
         <button id="qualityBtn" class="ghost">Calidad: Alta</button>
@@ -134,6 +140,40 @@
     </div>
   </section>
 
+  <div id="barHud" hidden>
+    <div class="bar-top">
+      <div class="bar-chip"><span class="lbl">Caja</span><strong id="bMoney">$0</strong></div>
+      <div class="bar-chip"><span class="lbl">Turno</span><strong id="bClock">4:00</strong></div>
+      <div class="bar-chip"><span class="lbl">Reseñas</span><span id="bStars" class="stars"><span>★</span><span>★</span><span>★</span></span></div>
+    </div>
+    <div id="bHand" class="bar-hand">Manos libres</div>
+    <div id="bHint" class="bar-hint"></div>
+    <div id="bPop" class="bar-pop"></div>
+    <div id="bTip" class="bar-tip" hidden></div>
+    <button id="bPause" class="icon-btn" aria-label="Pausa" title="Pausa (P)">
+      <svg viewBox="0 0 24 24" width="20" height="20"><rect x="6" y="5" width="4" height="14" rx="1" fill="currentColor"/><rect x="14" y="5" width="4" height="14" rx="1" fill="currentColor"/></svg>
+    </button>
+    <div class="bar-help">Pulsa para coger y servir · arrastra para mirar</div>
+  </div>
+
+  <section id="barOver" class="screen" hidden>
+    <div class="panel small">
+      <h2 id="boTitle">Fin del turno</h2>
+      <p id="boReason" class="over-reason"></p>
+      <div id="boBest" class="new-best" hidden>¡Nuevo récord de caja!</div>
+      <div class="stats">
+        <div><span class="lbl">Caja</span><strong id="boMoney">$0</strong></div>
+        <div><span class="lbl">Clientes servidos</span><strong id="boServed">0</strong></div>
+        <div><span class="lbl">Platos bien hechos</span><strong id="boPerfect">0</strong></div>
+        <div><span class="lbl">Se fueron enfadados</span><strong id="boAngry">0</strong></div>
+        <div><span class="lbl">Récord</span><strong id="boRecord">$0</strong></div>
+      </div>
+      <button id="boAgain" class="primary">Otro turno</button>
+      <button id="boMenu" class="ghost">Menú</button>
+    </div>
+  </section>
+
+  <div id="fade"></div>
   <div id="loading">Cargando la ciudad…</div>
 
   <script>

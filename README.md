@@ -20,6 +20,18 @@ Juego 3D para el navegador en tercera persona. El tren avanza solo y tú decides
 - **Rascacielos con luces rojas:** son demasiado altos para subirlos. Si la vía entra en uno, se corta y el tren choca. La vista previa punteada se vuelve roja cuando vas hacia uno.
 - La velocidad sube con la distancia. Las subidas frenan el tren y las bajadas lo aceleran.
 
+## Modo bar
+
+Desde el menú, **Modo bar** (o la tecla `B`): trabajas de camarero en primera persona dentro del vagón restaurante mientras el tren recorre la ciudad, el campo y las montañas por su cuenta.
+
+- Los clientes entran, se sientan en la barra y te piden con un bocadillo: refrescos (cola, naranja, limón), hamburguesas, perritos y patatas.
+- **Refrescos:** coge un vaso y pulsa el grifo.
+- **Hamburguesa / perrito:** pon carne o salchicha en la plancha, espera a que el indicador se ponga verde, cógela y llévala a la tabla de panes. Si la dejas demasiado, se quema.
+- **Patatas:** pulsa la freidora y recógelas cuando la luz se ponga verde.
+- Pulsa sobre el cliente para servirle. Si sirves algo crudo o quemado, se enfada. Cuanto antes completes el pedido, más propina.
+- El turno dura 4 minutos. Si se te van enfadados 3 clientes, se cierra el bar.
+- Ratón: mira moviendo el cursor o arrastrando; también con `←` `→`. Móvil: arrastra para mirar y toca para usar.
+
 ## El mundo
 
 - **Ciudad estilo Nueva York:** cuadrícula de Manhattan con avenidas de sentido único, Midtown con rascacielos gigantes y carteles de neón, edificios de ladrillo con escaleras de incendios y depósitos de agua, casas de piedra rojiza, parques, taxis amarillos y vapor saliendo de la calzada.
@@ -52,6 +64,7 @@ En el repositorio: **Settings → Pages → Build and deployment → Deploy from
 - `src/effects.js`: humo, chispas, fuego y el dron constructor con la vista previa de la vía.
 - `src/audio.js`: todos los sonidos sintetizados con Web Audio (sin archivos de audio).
 - `src/missions.js`: estaciones, pasajeros, cuenta atrás y vidas.
+- `src/bar/`: modo bar (vagón restaurante, clientes con cara y gestos, comida y bebida).
 - `src/main.js`: bucle de juego, cámara, puntuación, menús y modo demostración (en el menú juega una IA).
 
 La calidad (sombras, resolución y resplandor) se elige en el menú y baja sola si el juego va lento.

@@ -201,7 +201,55 @@ h2 { font-family: var(--font-display); font-size: 40px; margin: 0 0 18px; }
   .card .ico, .keys { height: 22px; line-height: 22px; font-size: 20px; }
   .menu-foot { margin-top: 12px; }
 }
+/* ---------- Modo bar ---------- */
+.play-row { display: flex; gap: 14px; justify-content: center; align-items: stretch; flex-wrap: wrap; }
+.play-row .primary { margin: 0; width: min(260px, 100%); }
+.secondary {
+  width: min(300px, 100%); padding: 10px 18px; border-radius: 14px; cursor: pointer; text-align: left;
+  background: rgba(94, 242, 255, 0.1); border: 1px solid rgba(94, 242, 255, 0.45); color: var(--text);
+  display: flex; flex-direction: column; gap: 2px; justify-content: center;
+}
+.secondary:hover { background: rgba(94, 242, 255, 0.18); }
+.sec-title { font-family: var(--font-display); font-size: 20px; letter-spacing: 0.04em; color: var(--cyan); text-transform: uppercase; }
+.sec-sub { font-size: 13px; color: var(--muted); }
+#barHud { position: fixed; inset: 0; pointer-events: none; }
+.bar-top { position: absolute; top: max(14px, env(safe-area-inset-top)); left: 16px; display: flex; gap: 10px; flex-wrap: wrap; }
+.bar-chip {
+  display: flex; flex-direction: column; gap: 2px; padding: 8px 14px; border-radius: 14px;
+  background: rgba(20, 12, 8, 0.72); border: 1px solid rgba(255, 210, 150, 0.2); min-width: 86px;
+}
+.bar-chip strong { font-family: var(--font-display); font-size: 24px; font-variant-numeric: tabular-nums; color: #ffe2b0; }
+#bClock.low { color: var(--danger); }
+.stars { font-size: 22px; color: #ffcf3f; letter-spacing: 2px; text-shadow: 0 0 8px rgba(255, 200, 60, 0.5); }
+.stars span.lost { color: rgba(255, 255, 255, 0.18); text-shadow: none; }
+.bar-hand {
+  position: absolute; bottom: max(18px, env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%);
+  padding: 8px 16px; border-radius: 999px; background: rgba(20, 12, 8, 0.72); border: 1px solid rgba(255, 210, 150, 0.25);
+  font-weight: 700; font-size: 15px; color: #ffe2b0; white-space: nowrap;
+}
+.bar-hint {
+  position: absolute; bottom: calc(max(18px, env(safe-area-inset-bottom)) + 52px); left: 50%; transform: translate(-50%, 6px);
+  padding: 8px 16px; border-radius: 12px; background: rgba(255, 255, 255, 0.92); color: #1b1b1b; font-weight: 600; font-size: 15px;
+  opacity: 0; transition: opacity 0.2s, transform 0.2s; max-width: calc(100vw - 32px); text-align: center;
+}
+.bar-hint.show { opacity: 1; transform: translate(-50%, 0); }
+.bar-pop {
+  position: absolute; top: 24%; left: 50%; transform: translate(-50%, 0); font-family: var(--font-display); font-size: clamp(22px, 5vw, 34px);
+  color: #7dff9a; text-shadow: 0 3px 14px rgba(0, 0, 0, 0.7); opacity: 0; white-space: nowrap;
+}
+.bar-pop.go { animation: popUp 1.4s ease-out; }
+@keyframes popUp { 0% { opacity: 0; transform: translate(-50%, 10px); } 15% { opacity: 1; } 70% { opacity: 1; } 100% { opacity: 0; transform: translate(-50%, -30px); } }
+.bar-tip {
+  position: fixed; padding: 5px 10px; border-radius: 8px; background: rgba(10, 10, 14, 0.85); color: #fff; font-size: 13px; font-weight: 600;
+  white-space: nowrap; pointer-events: none;
+}
+#barHud .icon-btn { pointer-events: auto; }
+.bar-help { position: absolute; top: max(78px, calc(env(safe-area-inset-top) + 72px)); left: 16px; font-size: 12px; color: rgba(255, 240, 220, 0.75); text-shadow: 0 1px 6px rgba(0, 0, 0, 0.8); }
+#fade { position: fixed; inset: 0; background: #000; opacity: 0; pointer-events: none; transition: opacity 0.35s; }
+#fade.on { opacity: 1; transition: none; }
+
 @media (prefers-reduced-motion: reduce) {
+  .bar-pop.go { animation-duration: 0.01s; }
   #warn { animation: none; }
   .coins.pulse { animation: none; }
   #toast { transition: opacity 0.1s; }

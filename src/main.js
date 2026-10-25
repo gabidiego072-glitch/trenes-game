@@ -17,6 +17,7 @@ import { Sfx } from './audio.js';
 import { Input } from './input.js';
 import { Missions } from './missions.js';
 import { Traffic } from './traffic.js';
+import { BarMode } from './bar/bar.js';
 
 // ---------- DOM ----------
 const $ = (id) => document.getElementById(id);
@@ -132,6 +133,8 @@ const smoke = new Particles(scene, 1600, { soft: true, drag: 1.6, gravity: 1.2 }
 const sparks = new Particles(scene, 900, { additive: true, gravity: -14, drag: 0.6 });
 const fire = new Particles(scene, 300, { additive: true, soft: true, gravity: 3, drag: 2.2 });
 const sfx = new Sfx();
+scene.add(camera); // la cámara lleva colgado lo que tienes en la mano en el modo bar
+const bar = new BarMode(camera, sfx);
 const input = new Input(canvas);
 
 const C_SMOKE = new THREE.Color(0.78, 0.72, 0.7);
@@ -150,6 +153,7 @@ const CONFETTI = [0xff5a5f, 0xffc93c, 0x3dffa8, 0x5ef2ff, 0xb388ff, 0xffffff].ma
 const G = {
   mode: 'menu',     // menu | playing | paused | crash | over
   attract: true,    // la IA juega en el menú
+  game: 'rails',    // rails = construir vías · bar = vagón restaurante
   s: 0, v: START_SPEED, dist: 0, score: 0, coins: 0, mult: 1, maxAlt: 0, taxis: 0,
   time: 0, crashT: 0, shake: 0, slowmo: 1, danger: false, playT: 0,
   best: Number(storageGet('vialibre.best', '0')) || 0,
@@ -264,7 +268,7 @@ function stepRun(dt) {
 
   // la pendiente frena al subir y acelera al bajar
   const slope = track.slopeAt(G.s - 6);
-  const vTarget = Math.min(MAX_SPEED, START_SPEED + G.dist * 0.0045);
+  const vTarget = G.game === 'bar' ? 12 : Math.min(MAX_SPEED, START_SPEED + G.dist * 0.0045);
   const acc = (vTarget - G.v) * 0.45 - slope * 9.8 * 0.5;
   G.v = clamp(G.v + acc * dt, MIN_SPEED, MAX_SPEED + 8);
   const ds = G.v * dt;
@@ -278,6 +282,10 @@ function stepRun(dt) {
   track.flush();
 
   if (G.s >= track.endS - 1.5) {
+    if (G.game === 'bar') {
+      recoverBar();
+      return;
+    }
     crash();
     return;
   }
@@ -514,6 +522,17 @@ function gameOver(reason = 'crash') {
 // ---------- Cámara ----------
 function updateCamera(dt, snap = false) {
   const P = train.position;
+  if (G.game === 'bar' && bar.active) {
+    // primera persona dentro del vagón restaurante
+    bar.applyCamera(camera, dt);
+    const portraitB = clamp((1.2 - camera.aspect) * 25, 0, 20);
+    camera.fov = 70 + portraitB;
+    camera.updateProjectionMatrix();
+    sky.position.copy(camera.position);
+    sun.target.position.copy(P);
+    sun.position.copy(P).addScaledVector(sunDir, 260);
+    return;
+  }
   const F = train.forward(tmpF);
   F.y = 0;
   if (F.lengthSq() < 1e-6) F.set(0, 0, 1);
@@ -594,10 +613,107 @@ function updateHud(dt) {
 
 // ---------- Menús ----------
 function setTouchButtons(on) {
-  ui.tl.hidden = ui.tr.hidden = !(on && touch);
+  ui.tl.hidden = ui.tr.hidden = !(on && touch && G.game !== 'bar');
 }
 
+// ---------- Modo bar ----------
+let hoverQ = null;
+let lastHover = 0;
+let pd = null;
+const barOn = () => G.game === 'bar' && G.mode === 'playing' && bar.active;
+canvas.addEventListener('pointerdown', (e) => {
+  if (!barOn()) return;
+  pd = { id: e.pointerId, x: e.clientX, y: e.clientY, lx: e.clientX, ly: e.clientY, drag: false };
+});
+window.addEventListener('pointermove', (e) => {
+  if (!barOn()) return;
+  const nx = e.clientX / innerWidth, ny = e.clientY / innerHeight;
+  if (pd && pd.id === e.pointerId) {
+    if (!pd.drag && Math.hypot(e.clientX - pd.x, e.clientY - pd.y) > 8) pd.drag = true;
+    if (pd.drag) bar.drag(e.clientX - pd.lx, e.clientY - pd.ly);
+    pd.lx = e.clientX;
+    pd.ly = e.clientY;
+  } else {
+    bar.pointerLook(nx, ny, e.pointerType === 'mouse');
+    if (e.pointerType === 'mouse') hoverQ = [nx, ny, e.clientX, e.clientY];
+  }
+});
+window.addEventListener('pointerup', (e) => {
+  if (!barOn() || !pd || pd.id !== e.pointerId) return;
+  if (!pd.drag) bar.click(e.clientX / innerWidth, e.clientY / innerHeight);
+  pd = null;
+});
+
+function startBar() {
+  sfx.init();
+  if (bar.active) bar.stop();
+  G.game = 'bar';
+  G.mode = 'playing';
+  resetRun(true); // el tren va solo
+  ui.menu.hidden = true;
+  ui.over.hidden = true;
+  ui.pause.hidden = true;
+  $('barOver').hidden = true;
+  ui.hud.hidden = true;
+  ui.warn.hidden = true;
+  setTouchButtons(false);
+  bar.start(train);
+  updateCamera(0, true);
+  sfx.whistle();
+}
+
+function stopBar() {
+  bar.stop();
+  G.game = 'rails';
+  $('barOver').hidden = true;
+}
+
+/** Si el piloto automático se queda sin salida, el tren "llega a la siguiente estación" (vuelve al inicio). */
+function recoverBar() {
+  const f = $('fade');
+  f.classList.add('on');
+  track.reset();
+  G.s = 0;
+  G.v = 12;
+  world.update(new THREE.Vector3(0, 0, 0), 100000);
+  track.lockIndex = 3;
+  while (track.headS < 40) track.addPoint();
+  track.flush();
+  train.place(track, 0, 0, 0);
+  bar.hint('Siguiente parada…', 1.5);
+  setTimeout(() => f.classList.remove('on'), 60);
+}
+
+function barOver() {
+  G.mode = 'over';
+  const r = bar.results();
+  let best = Number(storageGet('vialibre.barBest', '0')) || 0;
+  const isBest = r.money > best;
+  if (isBest) {
+    best = r.money;
+    storageSet('vialibre.barBest', String(best));
+  }
+  $('boTitle').textContent = bar.stars <= 0 ? '¡Cerramos el bar!' : 'Fin del turno';
+  $('boReason').textContent = bar.stars <= 0 ? 'Demasiados clientes se fueron enfadados.' : 'El tren llega a la última estación.';
+  $('boMoney').textContent = '$' + r.money;
+  $('boServed').textContent = r.served;
+  $('boPerfect').textContent = r.perfect;
+  $('boAngry').textContent = r.angry;
+  $('boRecord').textContent = '$' + best;
+  $('boBest').hidden = !isBest;
+  $('barOver').hidden = false;
+  bar.ui.tip.hidden = true;
+  sfx.sizzle(0);
+  $('boAgain').focus();
+}
+
+$('barBtn').addEventListener('click', startBar);
+$('boAgain').addEventListener('click', startBar);
+$('boMenu').addEventListener('click', toMenu);
+$('bPause').addEventListener('click', () => pauseGame());
+
 function startGame() {
+  if (G.game === 'bar') stopBar();
   sfx.init();
   G.mode = 'playing';
   resetRun(false);
@@ -629,6 +745,7 @@ function resumeGame() {
 
 function toMenu() {
   missions.reset();
+  if (G.game === 'bar') stopBar();
   ui.pause.hidden = true;
   ui.over.hidden = true;
   ui.hud.hidden = true;
@@ -664,12 +781,14 @@ input.on('key', (code) => {
   if (code === 'Enter' || code === 'Space') {
     if (G.mode === 'menu' || G.mode === 'over') {
       if (document.activeElement && document.activeElement.tagName === 'BUTTON') return; // el botón ya lo gestiona
-      startGame();
+      if (G.game === 'bar') startBar();
+      else startGame();
     } else if (G.mode === 'paused') resumeGame();
   } else if (code === 'Escape' || code === 'KeyP') {
     if (G.mode === 'playing') pauseGame();
     else if (G.mode === 'paused') resumeGame();
   } else if (code === 'KeyM') toggleMute();
+  else if (code === 'KeyB' && G.mode === 'menu') startBar();
 });
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) pauseGame();
@@ -715,6 +834,15 @@ function frame(now) {
   if (G.mode !== 'paused') G.time += dt;
 
   if (G.mode === 'playing' || G.mode === 'menu') stepRun(dt);
+  if (G.game === 'bar' && G.mode === 'playing') {
+    bar.keysYaw = (input.keys.has('ArrowLeft') || input.keys.has('KeyA') ? 1 : 0) - (input.keys.has('ArrowRight') || input.keys.has('KeyD') ? 1 : 0);
+    if (hoverQ && now - lastHover > 60) {
+      bar.hover(...hoverQ);
+      hoverQ = null;
+      lastHover = now;
+    }
+    if (bar.update(dt, G.time) === 'over') barOver();
+  }
   else if (G.mode === 'crash') stepCrash(dt);
 
   if (G.mode !== 'paused') {
@@ -729,6 +857,8 @@ function frame(now) {
     updateSkyBiome(dt);
     const building = G.mode === 'playing' || G.mode === 'menu';
     builder.update(G.time, track.head, track, world, building ? sparks : null, building && track.blockedAt === null);
+    if (G.game === 'bar') builder.group.visible = false;
+    builder.preview.visible = G.game !== 'bar';
     updateCamera(dt);
   }
   sfx.update(dt, G.v, G.mode === 'playing');
@@ -737,7 +867,7 @@ function frame(now) {
     G.playT += dt;
     updateHud(dt);
     updateMissionArrow();
-    if (hintStep < HINTS.length) {
+    if (hintStep < HINTS.length && G.game === 'rails') {
       hintT -= dt;
       if (hintT <= 0) {
         toast(HINTS[hintStep++], 2.6);
@@ -765,6 +895,7 @@ function frame(now) {
 
   const scale = renderer.getDrawingBufferSize(tmpV).y / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2));
   smoke.setScale(scale);
+  bar.steam.setScale(scale);
   sparks.setScale(scale);
   fire.setScale(scale);
   builder.prevUniforms.uScale.value = scale;
@@ -796,4 +927,4 @@ function simulate(n, dt, steerFn) {
   updateCamera(1, true);
   return { mode: G.mode, dist: G.dist, y: train.position.y, v: G.v, coins: G.coins, score: G.score };
 }
-window.__game = { G, track, world, train, renderer, camera, missions, traffic, startGame, toMenu, simulate };
+window.__game = { G, track, world, train, renderer, camera, missions, traffic, bar, startGame, startBar, toMenu, simulate };
