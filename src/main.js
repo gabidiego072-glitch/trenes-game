@@ -8,7 +8,7 @@ import {
   DS, CLEAR, KMAX, START_SPEED, MAX_SPEED, MIN_SPEED, COIN_POINTS, GEM_POINTS,
 } from './config.js';
 import { clamp, damp, isTouchDevice, storageGet, storageSet } from './utils.js';
-import { makeSkyMaterial } from './materials.js';
+import { makeSkyMaterial, SKY } from './materials.js';
 import { World } from './world.js';
 import { Track } from './track.js';
 import { Train } from './train.js';
@@ -16,6 +16,7 @@ import { Particles, Builder } from './effects.js';
 import { Sfx } from './audio.js';
 import { Input } from './input.js';
 import { Missions } from './missions.js';
+import { Traffic } from './traffic.js';
 
 // ---------- DOM ----------
 const $ = (id) => document.getElementById(id);
@@ -37,15 +38,14 @@ const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPrefere
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.0;
+renderer.toneMappingExposure = 1.12;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 
 const scene = new THREE.Scene();
-const HORIZON = 0xd9806c;
-scene.fog = new THREE.FogExp2(HORIZON, 0.0047);
+scene.fog = new THREE.FogExp2(SKY.hor, 0.0036);
 const camera = new THREE.PerspectiveCamera(62, innerWidth / innerHeight, 0.3, 2500);
 
-const sunDir = new THREE.Vector3(-0.42, 0.24, 0.88).normalize();
+const sunDir = new THREE.Vector3(-0.42, 0.14, 0.9).normalize();
 const skyMat = makeSkyMaterial(sunDir);
 const sky = new THREE.Mesh(new THREE.SphereGeometry(1200, 40, 20), skyMat);
 sky.renderOrder = -10;
@@ -61,9 +61,9 @@ scene.add(sky);
   pmrem.dispose();
 }
 
-const hemi = new THREE.HemisphereLight(0x8f93e0, 0x3a2a26, 0.45);
+const hemi = new THREE.HemisphereLight(0x7f88d8, 0x2e2230, 0.5);
 scene.add(hemi);
-const sun = new THREE.DirectionalLight(0xffb98a, 2.7);
+const sun = new THREE.DirectionalLight(0xffa86e, 2.5);
 sun.castShadow = true;
 sun.shadow.camera.left = -95;
 sun.shadow.camera.right = 95;
@@ -127,7 +127,8 @@ const track = new Track(scene, world);
 const train = new Train(scene);
 const builder = new Builder(scene);
 const missions = new Missions(scene, world);
-const smoke = new Particles(scene, 900, { soft: true, drag: 1.6, gravity: 1.2 });
+const traffic = new Traffic(scene, world);
+const smoke = new Particles(scene, 1600, { soft: true, drag: 1.6, gravity: 1.2 });
 const sparks = new Particles(scene, 900, { additive: true, gravity: -14, drag: 0.6 });
 const fire = new Particles(scene, 300, { additive: true, soft: true, gravity: 3, drag: 2.2 });
 const sfx = new Sfx();
@@ -140,13 +141,16 @@ const C_GEM = new THREE.Color(0.35, 0.9, 1.0);
 const C_FIRE = new THREE.Color(1.0, 0.45, 0.12);
 const C_FIRE2 = new THREE.Color(1.0, 0.8, 0.3);
 const C_PICKUP = new THREE.Color(0.24, 1.0, 0.66);
+const C_STEAM = new THREE.Color(0.9, 0.88, 0.92);
+const C_TAXI = new THREE.Color(1.0, 0.8, 0.1);
+const TAXI_LINES = ['¡Taxi!', '¡Ese taxi volaba!', '¡Cuidado con los taxis!', '¡Paso, que voy!'];
 const CONFETTI = [0xff5a5f, 0xffc93c, 0x3dffa8, 0x5ef2ff, 0xb388ff, 0xffffff].map((c) => new THREE.Color(c));
 
 // ---------- Estado ----------
 const G = {
   mode: 'menu',     // menu | playing | paused | crash | over
   attract: true,    // la IA juega en el menú
-  s: 0, v: START_SPEED, dist: 0, score: 0, coins: 0, mult: 1, maxAlt: 0,
+  s: 0, v: START_SPEED, dist: 0, score: 0, coins: 0, mult: 1, maxAlt: 0, taxis: 0,
   time: 0, crashT: 0, shake: 0, slowmo: 1, danger: false, playT: 0,
   best: Number(storageGet('vialibre.best', '0')) || 0,
 };
@@ -171,6 +175,7 @@ function resetRun(attract) {
   G.coins = 0;
   G.mult = 1;
   G.maxAlt = 0;
+  G.taxis = 0;
   G.crashT = 0;
   G.shake = 0;
   G.slowmo = 1;
@@ -185,6 +190,7 @@ function resetRun(attract) {
   flash.intensity = 0;
   builder.setDanger(false);
   world.update(new THREE.Vector3(0, 0, 0), 100000);
+  traffic.reset(new THREE.Vector3(0, 0, 0));
   track.lockIndex = 3;
   while (track.headS < 40) track.addPoint();
   track.flush();
@@ -310,6 +316,23 @@ function stepRun(dt) {
     }
   }
 
+  // taxis: si el tren va a ras de suelo, los arrolla (y frena un poco)
+  tmpL.copy(train.position).addScaledVector(fwd, 5.5);
+  const hits = traffic.update(dt, train.position, tmpL, fwd, train.position.y < 2.2, G.v);
+  for (const car of hits) {
+    for (let i = 0; i < 18; i++) {
+      sparks.spawn(car.pos.x, car.pos.y + 1, car.pos.z, (Math.random() - 0.5) * 10, Math.random() * 8, (Math.random() - 0.5) * 10,
+        0.4 + Math.random() * 0.4, 0.3, 0.05, C_TAXI, 1);
+    }
+    if (G.attract) continue;
+    G.v *= 0.86;
+    G.shake = Math.max(G.shake, 0.35);
+    G.score += 100 * G.mult;
+    G.taxis++;
+    sfx.honk();
+    if (Math.random() < 0.6) toast(TAXI_LINES[(Math.random() * TAXI_LINES.length) | 0] + ' +' + 100 * G.mult, 1.1, '#ffd400');
+  }
+
   if (!G.attract) handleMission(dt, fwd);
   if (G.mode !== 'playing' && !G.attract) return;
 
@@ -321,13 +344,13 @@ function stepRun(dt) {
   builder.setDanger(danger);
 
   // humo de la chimenea
-  const n = Math.random() < 0.5 ? 1 : 2;
+  const n = Math.random() < 0.6 ? 1 : 0;
   train.chimneyWorld(tmpL);
   for (let i = 0; i < n; i++) {
     smoke.spawn(
       tmpL.x, tmpL.y, tmpL.z,
       fwd.x * G.v * 0.7 + (Math.random() - 0.5) * 1.5, 8 + Math.random() * 3, fwd.z * G.v * 0.7 + (Math.random() - 0.5) * 1.5,
-      1.8 + Math.random() * 0.8, 0.8, 4.5 + Math.random() * 2, C_SMOKE, 0.32
+      1.6 + Math.random() * 0.7, 0.7, 4 + Math.random() * 1.5, C_SMOKE, 0.2
     );
   }
 }
@@ -653,6 +676,22 @@ document.addEventListener('visibilitychange', () => {
 });
 
 // ---------- Bucle ----------
+const FAR = new THREE.Vector3(1e6, 0, 1e6);
+
+/** Vapor de las alcantarillas cercanas a la cámara. */
+function emitSteam(dt) {
+  const cx = camera.position.x, cz = camera.position.z;
+  for (const lc of world.loaded.values()) {
+    for (const v of lc.vents) {
+      const dx = v.x - cx, dz = v.z - cz;
+      if (dx * dx + dz * dz > 170 * 170 || Math.random() > dt * 7) continue;
+      smoke.spawn(v.x + (Math.random() - 0.5) * 0.4, v.y, v.z + (Math.random() - 0.5) * 0.4,
+        (Math.random() - 0.5) * 0.8, 2.4 + Math.random() * 1.5, (Math.random() - 0.5) * 0.8,
+        2.6 + Math.random(), 1.0, 5.5 + Math.random() * 2, C_STEAM, 0.32);
+    }
+  }
+}
+
 let last = performance.now();
 let fpsSamples = [];
 
@@ -673,6 +712,8 @@ function frame(now) {
     fire.update(pdt);
     world.tick(G.time);
     world.update(train.position);
+    if (G.mode === 'crash' || G.mode === 'over') traffic.update(dt, train.position, FAR, tmpF.set(0, 0, 1), false, 0);
+    emitSteam(dt);
     const building = G.mode === 'playing' || G.mode === 'menu';
     builder.update(G.time, track.head, track, world, building ? sparks : null, building && track.blockedAt === null);
     updateCamera(dt);
@@ -742,4 +783,4 @@ function simulate(n, dt, steerFn) {
   updateCamera(1, true);
   return { mode: G.mode, dist: G.dist, y: train.position.y, v: G.v, coins: G.coins, score: G.score };
 }
-window.__game = { G, track, world, train, renderer, missions, startGame, toMenu, simulate };
+window.__game = { G, track, world, train, renderer, missions, traffic, startGame, toMenu, simulate };

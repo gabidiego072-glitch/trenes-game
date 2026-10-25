@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { CELL } from './config.js';
+import { CELL_X, CELL_Z } from './config.js';
 import { clamp } from './utils.js';
 
 const PICKUP_COLOR = new THREE.Color(0x3dffa8);
@@ -168,9 +168,9 @@ export class Missions {
     for (let tries = 0; tries < 30; tries++) {
       const px = tx + (Math.random() - 0.5) * 70;
       const pz = tz + (Math.random() - 0.5) * 70;
-      const cell = world.cell(Math.floor(px / CELL), Math.floor(pz / CELL));
+      const cell = world.cell(Math.floor(px / CELL_X), Math.floor(pz / CELL_Z));
       let spot = null;
-      if (Math.random() < 0.45 && cell.type === 'city') {
+      if (Math.random() < 0.45 && cell.type !== 'park') {
         const cands = cell.obstacles.filter((o) => !o.tower && o.x1 - o.x0 > 10 && o.z1 - o.z0 > 10 && o.h > 4);
         if (cands.length) {
           const o = cands[(Math.random() * cands.length) | 0];
@@ -180,13 +180,13 @@ export class Missions {
         }
       }
       if (!spot) {
-        const x = Math.round(px / CELL) * CELL, z = Math.round(pz / CELL) * CELL;
+        const x = Math.round(px / CELL_X) * CELL_X, z = Math.round(pz / CELL_Z) * CELL_Z;
         spot = { x, z, y: 0, roof: false };
       }
       if (world.towerHit(spot.x, spot.z, 10)) continue;
       return spot;
     }
-    return { x: Math.round(tx / CELL) * CELL, z: Math.round(tz / CELL) * CELL, y: 0, roof: false };
+    return { x: Math.round(tx / CELL_X) * CELL_X, z: Math.round(tz / CELL_Z) * CELL_Z, y: 0, roof: false };
   }
 
   limitFor(dist, speed) {

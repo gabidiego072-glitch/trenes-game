@@ -1,11 +1,12 @@
 // Ajustes globales del juego. Todas las medidas en metros / segundos.
 
-// Ciudad
-export const CELL = 50;          // tamaño de cada manzana (de centro de calle a centro de calle)
-export const ROAD = 12;          // ancho de la calzada
-export const SIDEWALK = 2.5;     // ancho de la acera
-export const LOT_INSET = ROAD / 2 + SIDEWALK; // del borde de la celda al solar edificable
-export const VIEW_CELLS = 7;     // radio de celdas cargadas alrededor del tren
+// Ciudad: cuadrícula de Manhattan. Las avenidas van de norte a sur (eje z) y las calles de este a oeste.
+export const CELL_X = 72;        // distancia entre avenidas
+export const CELL_Z = 44;        // distancia entre calles
+export const AVENUE = 16;        // ancho de avenida (en x = i * CELL_X)
+export const STREET = 11;        // ancho de calle (en z = j * CELL_Z)
+export const SIDEWALK = 3;       // ancho de la acera
+export const VIEW_DIST = 400;    // distancia hasta la que se carga la ciudad
 
 // Vías
 export const DS = 0.5;           // separación entre puntos de la vía

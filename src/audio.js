@@ -166,6 +166,13 @@ export class Sfx {
     this.tone(sec <= 2 ? 1320 : 990, { type: 'square', gain: 0.05, decay: 0.05 });
   }
 
+  honk() {
+    if (!this.ctx) return;
+    this.tone(415, { type: 'square', gain: 0.07, attack: 0.01, decay: 0.22 });
+    this.tone(523, { type: 'square', gain: 0.06, attack: 0.01, decay: 0.22 });
+    this.noiseBurst({ freq: 500, type: 'lowpass', q: 0.7, gain: 0.35, decay: 0.25 });
+  }
+
   warn() {
     if (!this.ctx) return;
     const now = this.ctx.currentTime;
