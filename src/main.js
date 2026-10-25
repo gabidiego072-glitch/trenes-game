@@ -622,7 +622,7 @@ let lastHover = 0;
 let pd = null;
 const barOn = () => G.game === 'bar' && G.mode === 'playing' && bar.active;
 canvas.addEventListener('pointerdown', (e) => {
-  if (!barOn()) return;
+  if (!barOn() || e.button !== 0) return;
   pd = { id: e.pointerId, x: e.clientX, y: e.clientY, lx: e.clientX, ly: e.clientY, drag: false };
 });
 window.addEventListener('pointermove', (e) => {
@@ -686,6 +686,7 @@ function recoverBar() {
 
 function barOver() {
   G.mode = 'over';
+  bar.collectAll();
   const r = bar.results();
   let best = Number(storageGet('vialibre.barBest', '0')) || 0;
   const isBest = r.money > best;
@@ -699,6 +700,7 @@ function barOver() {
   $('boServed').textContent = r.served;
   $('boPerfect').textContent = r.perfect;
   $('boAngry').textContent = r.angry;
+  $('boMistakes').textContent = r.mistakes;
   $('boRecord').textContent = '$' + best;
   $('boBest').hidden = !isBest;
   $('barOver').hidden = false;
@@ -711,6 +713,10 @@ $('barBtn').addEventListener('click', startBar);
 $('boAgain').addEventListener('click', startBar);
 $('boMenu').addEventListener('click', toMenu);
 $('bPause').addEventListener('click', () => pauseGame());
+$('bDrop').addEventListener('click', () => bar.drop());
+canvas.addEventListener('contextmenu', (e) => {
+  if (barOn()) bar.drop();
+});
 
 function startGame() {
   if (G.game === 'bar') stopBar();
@@ -789,6 +795,7 @@ input.on('key', (code) => {
     else if (G.mode === 'paused') resumeGame();
   } else if (code === 'KeyM') toggleMute();
   else if (code === 'KeyB' && G.mode === 'menu') startBar();
+  else if ((code === 'KeyQ' || code === 'KeyX' || code === 'Backspace') && barOn()) bar.drop();
 });
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) pauseGame();

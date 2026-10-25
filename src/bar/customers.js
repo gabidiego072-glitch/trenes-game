@@ -361,6 +361,16 @@ export class Customer {
       let sh = -1.05 * s + swing * (1 - s);
       let el = -0.55 * s;
       let shz = arm.side * (0.08 + 0.04 * s);
+      // comer / beber: lleva la mano derecha a la boca de vez en cuando
+      if (s > 0.9 && this.eating && arm.side > 0) {
+        const k = Math.max(0, Math.sin(t * 1.8 + this.phase));
+        sh = -1.05 - k * 1.25;
+        el = -0.55 - k * 1.55;
+        shz = arm.side * 0.12 - k * 0.35;
+        arm.shoulder.rotation.set(sh, 0, shz);
+        arm.elbow.rotation.x = el;
+        continue;
+      }
       // gestos según el humor
       if (s > 0.9) {
         if (this.mood === 'happy' && arm.side > 0) {

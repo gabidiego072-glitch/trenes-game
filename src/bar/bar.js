@@ -9,17 +9,19 @@ const W2 = 2.2;          // media anchura interior
 const L2 = 4.6;          // media longitud interior
 const H = 2.55;          // altura del techo
 const CAM = new THREE.Vector3(1.02, 1.66, 0);
-const STOOLS = [-1.25, 0, 1.25];
+const STOOLS = [1.25, 0, -1.25];   // asiento 1 a la izquierda de la pantalla
 const STOOL_X = -1.12;
 const AISLE_X = -1.78;
 const DOOR_Z = 4.25;
+const BAR_Y = 1.05;      // superficie de la barra de los clientes
 const SHIFT = 240;       // duración del turno (s)
-const SLOTS = [0.28, 0.45, 0.62];
+const SLOTS = [0.3, 0.45, 0.6];
 const TAPS = [
-  { drink: 'cola', z: -0.9 },
-  { drink: 'naranja', z: -1.05 },
-  { drink: 'limon', z: -1.2 },
+  { flavor: 'cola', z: -1.28 },
+  { flavor: 'naranja', z: -1.43 },
+  { flavor: 'limon', z: -1.58 },
 ];
+const HAND_BASE = new THREE.Vector3(0.25, -0.3, -0.5);
 
 const _q = new THREE.Quaternion();
 const _q2 = new THREE.Quaternion();
@@ -45,6 +47,35 @@ function canvasTexture(w, h, draw) {
   return t;
 }
 
+/** Brazo y mano del camarero en primera persona (camisa blanca arremangada). */
+function makeFPHand() {
+  const g = new THREE.Group();
+  const skin = new THREE.MeshPhysicalMaterial({ color: 0xe8b796, roughness: 0.6, sheen: 0.3, sheenColor: new THREE.Color(0xffd6c8) });
+  const shirt = new THREE.MeshPhysicalMaterial({ color: 0xf4f4f2, roughness: 0.85, sheen: 0.6 });
+  const add = (geo, m, x, y, z, rx = 0, ry = 0, rz = 0) => {
+    const o = new THREE.Mesh(geo, m);
+    o.position.set(x, y, z);
+    o.rotation.set(rx, ry, rz);
+    g.add(o);
+    return o;
+  };
+  // antebrazo que entra desde abajo a la derecha
+  add(new THREE.CapsuleGeometry(0.036, 0.26, 6, 14), skin, 0.06, -0.12, 0.12, 1.2, 0, 0.35);
+  add(new THREE.CylinderGeometry(0.046, 0.05, 0.12, 16), shirt, 0.1, -0.2, 0.24, 1.2, 0, 0.35);
+  // palma y dedos sujetando
+  const palm = add(new THREE.SphereGeometry(0.042, 18, 14), skin, 0, 0, 0);
+  palm.scale.set(0.9, 0.55, 1.15);
+  for (let i = 0; i < 4; i++) {
+    const f = add(new THREE.CapsuleGeometry(0.0095, 0.035, 4, 8), skin, -0.03 + i * 0.019, 0.012, -0.045, -1.1, 0, 0);
+    f.scale.setScalar(1 - Math.abs(i - 1.5) * 0.08);
+  }
+  add(new THREE.CapsuleGeometry(0.011, 0.03, 4, 8), skin, -0.045, 0.01, 0.0, 0, 0, 1.1);
+  g.traverse((m) => {
+    if (m.isMesh) m.castShadow = false;
+  });
+  return g;
+}
+
 export class BarMode {
   constructor(camera, sfx) {
     this.camera = camera;
@@ -60,24 +91,26 @@ export class BarMode {
     this.pitchFollow = 0;
     this.keysYaw = 0;
     this.customers = [];
-    this.bubbleTex = [];
     this.build();
-    this.hand = null;          // lo que llevas en la mano
-    this.handGroup = new THREE.Group();
-    this.handGroup.position.set(0.26, -0.25, -0.55);
-    this.handGroup.scale.setScalar(0.75);
-    this.handGroup.visible = false;
-    camera.add(this.handGroup);
+
+    // mano en primera persona con lo que llevas
+    this.hand = null;
+    this.handRig = new THREE.Group();
+    this.handRig.position.copy(HAND_BASE);
+    this.handRig.add(makeFPHand());
+    this.handItem = new THREE.Group();
+    this.handItem.position.set(0, 0.018, -0.03);
+    this.handItem.scale.setScalar(0.8);
+    this.handRig.add(this.handItem);
+    this.handRig.visible = false;
+    camera.add(this.handRig);
+    this.reach = null;
+
     this.raycaster = new THREE.Raycaster();
+    const $ = (id) => document.getElementById(id);
     this.ui = {
-      hud: document.getElementById('barHud'),
-      money: document.getElementById('bMoney'),
-      clock: document.getElementById('bClock'),
-      stars: document.getElementById('bStars'),
-      hand: document.getElementById('bHand'),
-      hint: document.getElementById('bHint'),
-      tip: document.getElementById('bTip'),
-      pop: document.getElementById('bPop'),
+      hud: $('barHud'), money: $('bMoney'), clock: $('bClock'), stars: $('bStars'), hand: $('bHand'),
+      hint: $('bHint'), tip: $('bTip'), pop: $('bPop'), drop: $('bDrop'), tickets: $('bTickets'),
     };
     this.hintT = 0;
   }
@@ -95,6 +128,15 @@ export class BarMode {
       return m;
     };
     const box = (w, h, d) => new THREE.BoxGeometry(w, h, d);
+    const click = (obj, action, label, data = {}) => {
+      obj.userData.action = action;
+      obj.userData.label = label;
+      Object.assign(obj.userData, data);
+      this.clickables.push(obj);
+      return obj;
+    };
+    const hitbox = (w, h, d, x, y, z, action, label, data) =>
+      click(add(box(w, h, d), new THREE.MeshBasicMaterial({ visible: false }), x, y, z, R, false), action, label, data);
 
     // suelo de baldosas blancas y negras
     const tiles = canvasTexture(256, 256, (g) => {
@@ -108,14 +150,14 @@ export class BarMode {
     const floor = add(new THREE.PlaneGeometry(W2 * 2, L2 * 2), phys(0xffffff, { map: tiles, roughness: 0.3, clearcoat: 0.4 }), 0, 0.001, 0, R, false);
     floor.rotation.x = -Math.PI / 2;
 
-    // techo y molduras
+    // techo, madera, latón y cromo
     const cream = std(0xefe3c8, { roughness: 0.8 });
-    const ceil = add(box(W2 * 2 + 0.2, 0.08, L2 * 2 + 0.2), cream, 0, H + 0.04, 0);
-    ceil.castShadow = true;
+    add(box(W2 * 2 + 0.2, 0.08, L2 * 2 + 0.2), cream, 0, H + 0.04, 0);
     const wood = phys(0x5b2f1a, { roughness: 0.42, clearcoat: 0.6, clearcoatRoughness: 0.3 });
     const darkWood = phys(0x3a1d10, { roughness: 0.5, clearcoat: 0.4 });
     const brass = std(0xc9a14a, { roughness: 0.25, metalness: 0.95 });
     const chrome = std(0xdfe3e8, { roughness: 0.15, metalness: 1 });
+    this.mats = { brass, chrome };
     for (const s of [-1, 1]) add(box(0.08, 0.1, L2 * 2), brass, s * (W2 - 0.04), H - 0.05, 0);
 
     // paredes laterales con ventanas
@@ -133,25 +175,21 @@ export class BarMode {
         z += pw + winW;
         if (z < L2) add(box(0.12, 1.1, 0.03), brass, x - s * 0.01, 1.5, z);
       }
-      // cristal muy sutil
-      const glass = add(box(0.01, 1.1, L2 * 2), phys(0xaaccdd, { transparent: true, opacity: 0.08, roughness: 0.05, metalness: 0, depthWrite: false }), x - s * 0.02, 1.5, 0, R, false);
+      const glass = add(box(0.01, 1.1, L2 * 2), phys(0xaaccdd, { transparent: true, opacity: 0.08, roughness: 0.05, depthWrite: false }), x - s * 0.02, 1.5, 0, R, false);
       glass.renderOrder = 6;
     }
-
-    // paredes de los extremos
     for (const s of [-1, 1]) {
       const z = s * (L2 + 0.04);
       add(box(W2 * 2, 1.0, 0.08), wood, 0, 0.5, z);
       add(box(W2 * 2, H - 1.0, 0.08), cream, 0, 1.0 + (H - 1) / 2, z);
       add(box(W2 * 2, 0.05, 0.1), brass, 0, 1.0, z - s * 0.01);
     }
-    // puerta por la que entran los clientes
-    const doorZ = L2 + 0.0;
-    add(box(0.9, 2.1, 0.06), darkWood, AISLE_X + 0.15, 1.05, doorZ - 0.02);
-    add(box(0.5, 0.9, 0.02), phys(0x9fc4d6, { transparent: true, opacity: 0.35, roughness: 0.05 }), AISLE_X + 0.15, 1.45, doorZ - 0.06, R, false);
-    add(new THREE.SphereGeometry(0.03, 12, 8), brass, AISLE_X + 0.5, 1.05, doorZ - 0.08);
+    // puerta
+    add(box(0.9, 2.1, 0.06), darkWood, AISLE_X + 0.15, 1.05, L2 - 0.02);
+    add(box(0.5, 0.9, 0.02), phys(0x9fc4d6, { transparent: true, opacity: 0.35, roughness: 0.05 }), AISLE_X + 0.15, 1.45, L2 - 0.06, R, false);
+    add(new THREE.SphereGeometry(0.03, 12, 8), brass, AISLE_X + 0.5, 1.05, L2 - 0.08);
 
-    // letrero de neón y carta en las paredes del fondo
+    // neón y carta
     const neon = canvasTexture(1024, 256, (g, w, h) => {
       g.fillStyle = '#120a0a';
       g.fillRect(0, 0, w, h);
@@ -167,9 +205,8 @@ export class BarMode {
       g.lineWidth = 8;
       g.strokeRect(20, 20, w - 40, h - 40);
     });
-    const neonMesh = add(new THREE.PlaneGeometry(1.8, 0.45), new THREE.MeshBasicMaterial({ map: neon, color: new THREE.Color(1.6, 1.6, 1.6) }), -0.6, 2.05, -L2 + 0.01, R, false);
-    neonMesh.rotation.y = 0;
-    const menu = canvasTexture(512, 640, (g, w, h) => {
+    add(new THREE.PlaneGeometry(1.8, 0.45), new THREE.MeshBasicMaterial({ map: neon, color: new THREE.Color(1.6, 1.6, 1.6) }), -0.6, 2.05, -L2 + 0.01, R, false);
+    const menu = canvasTexture(512, 700, (g, w, h) => {
       g.fillStyle = '#1d2a22';
       g.fillRect(0, 0, w, h);
       g.strokeStyle = '#a8742e';
@@ -179,23 +216,23 @@ export class BarMode {
       g.textAlign = 'center';
       g.font = "700 54px 'Georgia', serif";
       g.fillText('CARTA', w / 2, 90);
-      g.font = "400 34px 'Georgia', serif";
-      g.textAlign = 'left';
-      const rows = [['Hamburguesa', 6], ['Perrito', 4], ['Patatas', 3], ['Cola', 2], ['Naranja', 2], ['Limón', 2]];
+      g.font = "400 32px 'Georgia', serif";
+      const rows = [['Hamburguesa', '$5'], ['  + cada extra', '$0,5'], ['Perrito', '$4'], ['Patatas', '$3'], ['Refresco', '$2']];
       rows.forEach(([n, p], i) => {
-        g.fillText(n, 50, 175 + i * 72);
-        g.textAlign = 'right';
-        g.fillText('$' + p, w - 50, 175 + i * 72);
         g.textAlign = 'left';
+        g.fillText(n, 46, 175 + i * 70);
+        g.textAlign = 'right';
+        g.fillText(p, w - 46, 175 + i * 70);
       });
-      g.font = "italic 26px 'Georgia', serif";
+      g.font = "italic 24px 'Georgia', serif";
       g.textAlign = 'center';
-      g.fillText('Servicio a bordo', w / 2, h - 50);
+      g.fillText('Queso · lechuga · tomate · cebolla', w / 2, h - 110);
+      g.fillText('Kétchup · mostaza · hielo · sal', w / 2, h - 70);
     });
-    const menuMesh = add(new THREE.PlaneGeometry(0.62, 0.78), std(0xffffff, { map: menu, roughness: 0.9 }), 0.7, 1.65, L2 - 0.01, R, false);
+    const menuMesh = add(new THREE.PlaneGeometry(0.62, 0.85), std(0xffffff, { map: menu, roughness: 0.9 }), 0.7, 1.65, L2 - 0.01, R, false);
     menuMesh.rotation.y = Math.PI;
 
-    // estantería con botellas en la pared del fondo
+    // estantería con botellas
     for (const y of [1.3, 1.62]) add(box(1.4, 0.03, 0.22), darkWood, 1.2, y, -L2 + 0.12);
     const bottleCols = [0x2e7d32, 0x8d3a1a, 0xc9a14a, 0x1e4f8a, 0x7a1f3a, 0xd9d2c0];
     for (let i = 0; i < 14; i++) {
@@ -204,16 +241,15 @@ export class BarMode {
       add(new THREE.CylinderGeometry(0.01, 0.014, 0.07, 8), b.material, 0, 0.14, 0, b);
     }
 
-    // ---- barra donde se sientan los clientes ----
+    // ---- barra de los clientes ----
     const leather = phys(0x8a1c22, { roughness: 0.55, sheen: 0.6, sheenColor: new THREE.Color(0xff8080) });
-    add(box(0.62, 0.06, 5.6), wood, -0.48, 1.02, 0);
-    add(box(0.06, 0.96, 5.6), leather, -0.77, 0.48, 0);
-    for (const y of [0.15, 0.86]) add(box(0.07, 0.03, 5.62), chrome, -0.78, y, 0);
-    add(box(0.05, 0.96, 5.6), darkWood, -0.2, 0.48, 0);
+    add(box(0.62, 0.06, 5.6), wood, -0.48, BAR_Y - 0.03, 0);
+    add(box(0.06, BAR_Y - 0.09, 5.6), leather, -0.77, (BAR_Y - 0.09) / 2, 0);
+    for (const y of [0.15, BAR_Y - 0.16]) add(box(0.07, 0.03, 5.62), chrome, -0.78, y, 0);
+    add(box(0.05, BAR_Y - 0.09, 5.6), darkWood, -0.2, (BAR_Y - 0.09) / 2, 0);
     const rail = add(new THREE.CylinderGeometry(0.022, 0.022, 5.5, 12), brass, -0.88, 0.2, 0);
     rail.rotation.x = Math.PI / 2;
-    // taburetes
-    this.stoolMeshes = STOOLS.map((z) => {
+    STOOLS.forEach((z, i) => {
       const g = new THREE.Group();
       g.position.set(STOOL_X, 0, z);
       add(new THREE.CylinderGeometry(0.2, 0.22, 0.03, 24), chrome, 0, 0.015, 0, g);
@@ -222,61 +258,68 @@ export class BarMode {
       ring.rotation.x = Math.PI / 2;
       add(new THREE.CylinderGeometry(0.2, 0.19, 0.08, 28), leather, 0, 0.7, 0, g);
       R.add(g);
-      return g;
+      // placa con el número de asiento
+      const num = canvasTexture(64, 64, (c, w, h) => {
+        c.fillStyle = '#c9a14a';
+        c.beginPath();
+        c.arc(32, 32, 30, 0, Math.PI * 2);
+        c.fill();
+        c.fillStyle = '#2a1a0a';
+        c.font = "900 40px 'Arial Black', sans-serif";
+        c.textAlign = 'center';
+        c.textBaseline = 'middle';
+        c.fillText(String(i + 1), 32, 35);
+      });
+      const plate = add(new THREE.CircleGeometry(0.03, 20), new THREE.MeshStandardMaterial({ map: num, metalness: 0.6, roughness: 0.3 }), -0.205, BAR_Y - 0.05, z, R, false);
+      plate.rotation.y = Math.PI / 2;
     });
-    // detalles sobre la barra
-    add(box(0.28, 0.2, 0.3), std(0x2a2a2a, { metalness: 0.5, roughness: 0.4 }), -0.5, 1.15, 2.4);
-    add(box(0.2, 0.05, 0.22), chrome, -0.5, 1.27, 2.4);
-    for (const [z, col] of [[-1.8, 0xd8262b], [-1.72, 0xf2c41a], [0.62, 0xd8262b], [0.7, 0xf2c41a], [1.9, 0xd8262b]]) {
-      const b = add(new THREE.CylinderGeometry(0.022, 0.025, 0.15, 12), phys(col, { roughness: 0.3, clearcoat: 1 }), -0.62, 1.125, z);
+    // salseros y bote de propinas decorativos
+    for (const [z, col] of [[-1.85, 0xd8262b], [-1.77, 0xf2c41a], [0.62, 0xd8262b], [0.7, 0xf2c41a], [1.9, 0xd8262b]]) {
+      const b = add(new THREE.CylinderGeometry(0.022, 0.025, 0.15, 12), phys(col, { roughness: 0.3, clearcoat: 1 }), -0.66, BAR_Y + 0.075, z);
       add(new THREE.ConeGeometry(0.012, 0.04, 8), b.material, 0, 0.095, 0, b);
     }
-    const jar = add(new THREE.CylinderGeometry(0.06, 0.06, 0.14, 20, 1, true), phys(0xddeeff, { transparent: true, opacity: 0.35, roughness: 0.05, side: THREE.DoubleSide }), -0.5, 1.12, -2.4);
-    jar.renderOrder = 6;
-    this.tipCoins = add(new THREE.CylinderGeometry(0.05, 0.05, 0.01, 16), brass, -0.5, 1.06, -2.4);
+    add(box(0.28, 0.2, 0.3), std(0x2a2a2a, { metalness: 0.5, roughness: 0.4 }), -0.5, BAR_Y + 0.1, 2.4);
+    add(box(0.2, 0.05, 0.22), chrome, -0.5, BAR_Y + 0.22, 2.4);
+
+    // sitios en la barra delante de cada taburete (comida servida, platos sucios y dinero)
+    this.spots = STOOLS.map((z, i) => {
+      const g = new THREE.Group();
+      g.position.set(-0.5, BAR_Y, z);
+      R.add(g);
+      const hit = hitbox(0.5, 0.25, 0.75, -0.48, BAR_Y + 0.1, z, 'spot', 'Sitio ' + (i + 1), { idx: i });
+      return { idx: i, z, group: g, hit, dirty: false, money: 0, tip: 0, models: [] };
+    });
 
     // ---- mostrador de trabajo (acero) ----
     const steel = std(0xb9bec4, { metalness: 0.9, roughness: 0.32 });
     const darkSteel = std(0x3a3d42, { metalness: 0.7, roughness: 0.45 });
-    add(box(0.56, 0.05, 3.0), steel, 0.08, 0.895, -0.15);
-    add(box(0.54, 0.87, 2.98), darkSteel, 0.08, 0.435, -0.15);
-
-    const click = (obj, action, label, data = {}) => {
-      obj.userData.action = action;
-      obj.userData.label = label;
-      Object.assign(obj.userData, data);
-      this.clickables.push(obj);
-      return obj;
-    };
+    add(box(0.56, 0.05, 3.3), steel, 0.08, 0.895, -0.4);
+    add(box(0.54, 0.87, 3.28), darkSteel, 0.08, 0.435, -0.4);
 
     // bandejas de carne y salchichas
     const trayMat = std(0xe0e0e0, { metalness: 0.6, roughness: 0.3 });
-    const pattyTray = add(box(0.2, 0.03, 0.17), trayMat, 0.04, 0.935, 1.12);
-    click(pattyTray, 'patty', 'Carne cruda · a la plancha');
+    add(box(0.2, 0.03, 0.17), trayMat, 0.04, 0.935, 0.9);
     for (let i = 0; i < 4; i++) {
       const p = F.makePatty(0);
-      p.position.set(0.04 + (i % 2) * 0.05 - 0.025, 0.96 + Math.floor(i / 2) * 0.02, 1.12 + (i % 2 ? 0.03 : -0.03));
+      p.position.set(0.015 + (i % 2) * 0.05, 0.96 + Math.floor(i / 2) * 0.02, 0.9 + (i % 2 ? 0.03 : -0.03));
       R.add(p);
-      click(p, 'patty', 'Carne cruda · a la plancha');
     }
-    const sausTray = add(box(0.2, 0.03, 0.17), trayMat, 0.04, 0.935, 0.9);
-    click(sausTray, 'sausage', 'Salchichas · a la plancha');
+    hitbox(0.22, 0.12, 0.19, 0.04, 0.97, 0.9, 'patty', 'Carne cruda · a la plancha');
+    add(box(0.2, 0.03, 0.17), trayMat, 0.04, 0.935, 1.1);
     for (let i = 0; i < 4; i++) {
       const s = F.makeSausage(0);
-      s.position.set(0.04, 0.965, 0.84 + i * 0.04);
+      s.position.set(0.04, 0.965, 1.04 + i * 0.04);
       s.rotation.set(0, Math.PI / 2, Math.PI / 2);
       R.add(s);
-      click(s, 'sausage', 'Salchichas · a la plancha');
     }
+    hitbox(0.22, 0.12, 0.19, 0.04, 0.97, 1.1, 'sausage', 'Salchichas · a la plancha');
 
     // plancha
-    const grill = add(box(0.36, 0.04, 0.5), std(0x1c1c1e, { metalness: 0.6, roughness: 0.5 }), 0.06, 0.94, 0.45);
+    add(box(0.36, 0.04, 0.5), std(0x1c1c1e, { metalness: 0.6, roughness: 0.5 }), 0.06, 0.94, 0.45);
     for (let i = 0; i < 9; i++) add(box(0.34, 0.004, 0.006), std(0x2a2a2c, { metalness: 0.7, roughness: 0.4 }), 0.06, 0.962, 0.22 + i * 0.058);
     this.grillGlow = add(box(0.37, 0.01, 0.51), new THREE.MeshBasicMaterial({ color: 0xff5a1a, transparent: true, opacity: 0.0 }), 0.06, 0.918, 0.45, R, false);
-    click(grill, 'grill', 'Plancha');
     this.slots = SLOTS.map((z, i) => {
-      const hit = add(box(0.2, 0.06, 0.15), new THREE.MeshBasicMaterial({ visible: false }), 0.06, 0.98, z, R, false);
-      click(hit, 'slot', 'Plancha', { idx: i });
+      hitbox(0.34, 0.08, 0.15, 0.06, 0.98, z, 'slot', 'Plancha', { idx: i });
       const dot = new THREE.Sprite(new THREE.SpriteMaterial({ color: 0xffd23f, depthTest: false }));
       dot.scale.set(0.035, 0.035, 1);
       dot.position.set(0.06, 1.06, z);
@@ -286,7 +329,7 @@ export class BarMode {
       return { z, item: null, mesh: null, dot };
     });
 
-    // freidora
+    // freidora y salero
     const fryer = new THREE.Group();
     fryer.position.set(0.06, 0.92, 0.02);
     R.add(fryer);
@@ -294,8 +337,7 @@ export class BarMode {
     add(box(0.26, 0.01, 0.22), phys(0xb07a1e, { roughness: 0.1, clearcoat: 1 }), 0, 0.1, 0, fryer);
     this.basket = new THREE.Group();
     fryer.add(this.basket);
-    const wire = std(0xcfd3d8, { metalness: 0.9, roughness: 0.3, wireframe: true });
-    add(box(0.2, 0.08, 0.16, 4, 2, 4), wire, 0, 0.16, 0, this.basket);
+    add(box(0.2, 0.08, 0.16, 4, 2, 4), std(0xcfd3d8, { metalness: 0.9, roughness: 0.3, wireframe: true }), 0, 0.16, 0, this.basket);
     const handle = add(box(0.18, 0.015, 0.02), std(0x111111), 0.17, 0.2, 0, this.basket);
     handle.rotation.z = -0.4;
     this.friesInBasket = F.makeFries('ok', 0);
@@ -305,78 +347,115 @@ export class BarMode {
     this.friesInBasket.visible = false;
     this.basket.add(this.friesInBasket);
     this.fryLamp = add(new THREE.SphereGeometry(0.012, 10, 8), new THREE.MeshBasicMaterial({ color: 0x333333 }), 0.155, 0.08, 0.1, fryer, false);
-    click(fryer, 'fryer', 'Freidora · patatas');
-    this.fryer = { state: 'idle', t: 0 };
+    hitbox(0.34, 0.25, 0.28, 0.07, 1.02, 0.02, 'fryer', 'Freidora');
+    const salt = new THREE.Group();
+    salt.position.set(0.27, 0.92, 0.2);
+    R.add(salt);
+    add(new THREE.CylinderGeometry(0.022, 0.024, 0.07, 14), phys(0xf2f2f2, { transparent: true, opacity: 0.9, roughness: 0.1, clearcoat: 1 }), 0, 0.035, 0, salt);
+    add(new THREE.CylinderGeometry(0.023, 0.023, 0.02, 14), chrome, 0, 0.08, 0, salt);
+    hitbox(0.08, 0.14, 0.08, 0.27, 0.98, 0.2, 'salt', 'Salero (para las patatas)');
 
-    // tabla de panes
-    const board = add(box(0.24, 0.025, 0.26), phys(0xc8995a, { roughness: 0.7 }), 0.05, 0.93, -0.38);
-    click(board, 'board', 'Panes · monta la hamburguesa o el perrito');
-    const bun = new THREE.Mesh(new THREE.SphereGeometry(0.05, 20, 10, 0, Math.PI * 2, 0, Math.PI / 2), std(0xc98a3c, { roughness: 0.55 }));
-    bun.scale.y = 0.7;
-    bun.position.set(0.05, 0.945, -0.32);
-    bun.castShadow = true;
-    R.add(bun);
-    click(bun, 'board', 'Panes · monta la hamburguesa o el perrito');
-    const hbun = new THREE.Mesh(new THREE.CapsuleGeometry(0.02, 0.1, 6, 10), std(0xc98a3c, { roughness: 0.55 }));
-    hbun.rotation.set(0, 0, Math.PI / 2);
-    hbun.position.set(0.05, 0.96, -0.45);
-    hbun.castShadow = true;
-    R.add(hbun);
-    click(hbun, 'board', 'Panes · monta la hamburguesa o el perrito');
+    // tabla de montaje
+    add(box(0.26, 0.025, 0.3), phys(0xc8995a, { roughness: 0.7 }), 0.07, 0.93, -0.4);
+    this.boardGroup = new THREE.Group();
+    this.boardGroup.position.set(0.07, 0.943, -0.4);
+    R.add(this.boardGroup);
+    hitbox(0.28, 0.16, 0.32, 0.07, 1.0, -0.4, 'board', 'Tabla de montaje');
+    this.board = null;
 
-    // vasos
-    for (let i = 0; i < 5; i++) {
-      const c = F.makeCup(null);
-      c.position.set(0.05, 0.92 + i * 0.025, -0.7);
-      R.add(c);
-      click(c, 'cups', 'Vasos');
+    // cestas de panes (cerca del camarero)
+    const basketMat = phys(0x8a5a2b, { roughness: 0.8 });
+    for (const [z, kind] of [[-0.27, 'bunB'], [-0.53, 'bunH']]) {
+      add(box(0.13, 0.05, 0.16), basketMat, 0.27, 0.945, z);
+      for (let i = 0; i < 3; i++) {
+        if (kind === 'bunB') {
+          const b = new THREE.Mesh(new THREE.SphereGeometry(0.04, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2), std(0xc98a3c, { roughness: 0.55 }));
+          b.scale.y = 0.7;
+          b.position.set(0.27, 0.97, z - 0.045 + i * 0.045);
+          R.add(b);
+        } else {
+          const b = new THREE.Mesh(new THREE.CapsuleGeometry(0.016, 0.08, 4, 8), std(0xc98a3c, { roughness: 0.55 }));
+          b.rotation.z = Math.PI / 2;
+          b.position.set(0.27, 0.985, z - 0.045 + i * 0.045);
+          R.add(b);
+        }
+      }
+      hitbox(0.15, 0.12, 0.18, 0.27, 0.98, z, kind, kind === 'bunB' ? 'Pan de hamburguesa' : 'Pan de perrito');
     }
 
-    // máquina de refrescos con tres grifos
-    // la cara con los grifos mira hacia el camarero (+x)
-    const mach = add(box(0.2, 0.44, 0.48), std(0xc8202a, { roughness: 0.35, metalness: 0.2 }), 0.0, 1.14, -1.05);
-    click(mach, 'machine', 'Máquina de refrescos');
-    add(box(0.16, 0.02, 0.46), darkSteel, 0.2, 0.93, -1.05);
-    const top = add(box(0.21, 0.06, 0.49), std(0xf2f2f2, { roughness: 0.4 }), 0.0, 1.38, -1.05);
-    void top;
+    // cuencos de ingredientes y botes de salsa (fila del fondo)
+    const bowlMat = std(0xe8e8e8, { metalness: 0.7, roughness: 0.25 });
+    const TOP_Z = { cheese: -0.16, lettuce: -0.27, tomato: -0.38, onion: -0.49 };
+    for (const k of F.TOPPINGS) {
+      const z = TOP_Z[k];
+      add(new THREE.CylinderGeometry(0.05, 0.042, 0.05, 18, 1, true), bowlMat, -0.12, 0.945, z).material.side = THREE.DoubleSide;
+      const fillM = add(new THREE.CylinderGeometry(0.046, 0.046, 0.01, 18), F.TOPPING_MATS[k](), -0.12, 0.96, z);
+      void fillM;
+      for (let i = 0; i < 4; i++) {
+        const piece = k === 'cheese' ? new THREE.BoxGeometry(0.03, 0.004, 0.03)
+          : k === 'onion' ? new THREE.TorusGeometry(0.012, 0.003, 4, 10)
+            : new THREE.CylinderGeometry(0.014, 0.014, 0.006, 10);
+        const pm = add(piece, F.TOPPING_MATS[k](), -0.12 + Math.cos(i * 1.6) * 0.02, 0.968 + i * 0.002, z + Math.sin(i * 1.6) * 0.02, R, false);
+        if (k === 'onion') pm.rotation.x = Math.PI / 2;
+        pm.rotation.y = i;
+      }
+      hitbox(0.11, 0.12, 0.1, -0.12, 0.97, z, k, 'Añadir ' + F.MOD_NAMES[k]);
+    }
+    for (const [k, z] of [['ketchup', -0.61], ['mustard', -0.71]]) {
+      const b = add(new THREE.CylinderGeometry(0.026, 0.028, 0.15, 14), phys(F.TOPPING_MATS[k]().color.getHex(), { roughness: 0.3, clearcoat: 1 }), -0.12, 0.995, z);
+      add(new THREE.ConeGeometry(0.012, 0.045, 10), b.material, 0, 0.097, 0, b);
+      hitbox(0.08, 0.2, 0.08, -0.12, 1.0, z, k, 'Añadir ' + F.MOD_NAMES[k]);
+    }
+
+    // vasos y cubitera
+    for (let i = 0; i < 5; i++) {
+      const c = F.makeCup(null);
+      c.position.set(0.05, 0.92 + i * 0.025, -0.9);
+      R.add(c);
+    }
+    hitbox(0.1, 0.25, 0.1, 0.05, 1.02, -0.9, 'cups', 'Vasos');
+    add(new THREE.CylinderGeometry(0.07, 0.06, 0.09, 20, 1, true), chrome, 0.05, 0.965, -1.08).material.side = THREE.DoubleSide;
+    const iceMat = phys(0xdff4ff, { roughness: 0.05, transparent: true, opacity: 0.85, clearcoat: 1 });
+    for (let i = 0; i < 9; i++) {
+      const c = add(new THREE.BoxGeometry(0.022, 0.022, 0.022), iceMat, 0.05 + Math.cos(i * 2.3) * 0.035, 0.99 + (i % 3) * 0.006, -1.08 + Math.sin(i * 2.3) * 0.035, R, false);
+      c.rotation.set(i, i * 0.7, 0);
+    }
+    hitbox(0.15, 0.14, 0.15, 0.05, 0.98, -1.08, 'ice', 'Cubitera · hielo');
+
+    // máquina de refrescos (los grifos miran al camarero)
+    add(box(0.2, 0.44, 0.48), std(0xc8202a, { roughness: 0.35, metalness: 0.2 }), 0.0, 1.14, -1.43);
+    add(box(0.16, 0.02, 0.46), darkSteel, 0.2, 0.93, -1.43);
+    add(box(0.21, 0.06, 0.49), std(0xf2f2f2, { roughness: 0.4 }), 0.0, 1.38, -1.43);
     this.streams = TAPS.map((t) => {
-      const name = 'Grifo de ' + F.ITEMS[t.drink].name.toLowerCase();
-      const lab = add(box(0.005, 0.09, 0.12), new THREE.MeshBasicMaterial({ color: new THREE.Color(F.ITEMS[t.drink].color).multiplyScalar(t.drink === 'cola' ? 3 : 1.4) }), 0.102, 1.26, t.z, R, false);
-      click(lab, 'tap', name, { drink: t.drink });
+      const name = 'Grifo de ' + F.FLAVORS[t.flavor].name.toLowerCase();
+      add(box(0.005, 0.09, 0.12), new THREE.MeshBasicMaterial({ color: new THREE.Color(F.FLAVORS[t.flavor].color).multiplyScalar(t.flavor === 'cola' ? 3 : 1.4) }), 0.102, 1.26, t.z, R, false);
       const tap = add(new THREE.CylinderGeometry(0.016, 0.016, 0.09, 10), chrome, 0.14, 1.12, t.z);
       tap.rotation.z = Math.PI / 2;
-      click(tap, 'tap', name, { drink: t.drink });
-      const spout = add(new THREE.CylinderGeometry(0.009, 0.009, 0.05, 8), chrome, 0.18, 1.09, t.z);
-      click(spout, 'tap', name, { drink: t.drink });
-      const hit = add(box(0.2, 0.3, 0.14), new THREE.MeshBasicMaterial({ visible: false }), 0.16, 1.1, t.z, R, false);
-      click(hit, 'tap', name, { drink: t.drink });
-      const stream = add(new THREE.CylinderGeometry(0.005, 0.005, 0.13, 8), new THREE.MeshBasicMaterial({ color: F.ITEMS[t.drink].color }), 0.18, 1.0, t.z, R, false);
+      add(new THREE.CylinderGeometry(0.009, 0.009, 0.05, 8), chrome, 0.18, 1.09, t.z);
+      hitbox(0.2, 0.32, 0.14, 0.15, 1.12, t.z, 'tap', name, { flavor: t.flavor });
+      const stream = add(new THREE.CylinderGeometry(0.005, 0.005, 0.13, 8), new THREE.MeshBasicMaterial({ color: F.FLAVORS[t.flavor].color }), 0.18, 1.0, t.z, R, false);
       stream.visible = false;
       return stream;
     });
 
     // papelera
-    const bin = add(new THREE.CylinderGeometry(0.14, 0.12, 0.86, 20), std(0x5a6068, { metalness: 0.6, roughness: 0.4 }), 0.12, 0.43, -1.78);
-    add(new THREE.CylinderGeometry(0.15, 0.15, 0.03, 20), std(0x30343a, { metalness: 0.6, roughness: 0.3 }), 0.12, 0.875, -1.78);
-    click(bin, 'trash', 'Papelera');
+    add(new THREE.CylinderGeometry(0.14, 0.12, 0.86, 20), std(0x5a6068, { metalness: 0.6, roughness: 0.4 }), 0.12, 0.43, -1.95);
+    add(new THREE.CylinderGeometry(0.15, 0.15, 0.03, 20), std(0x30343a, { metalness: 0.6, roughness: 0.3 }), 0.12, 0.875, -1.95);
+    hitbox(0.32, 0.95, 0.32, 0.12, 0.45, -1.95, 'trash', 'Papelera');
 
-    // lámparas colgantes
-    this.lights = [];
+    // lámparas colgantes y luces
     for (const z of [-1.4, 0.2, 1.8]) {
-      const cord = add(new THREE.CylinderGeometry(0.004, 0.004, 0.45, 6), std(0x111111), -0.45, H - 0.22, z, R, false);
-      const shade = add(new THREE.ConeGeometry(0.17, 0.16, 24, 1, true), phys(0x1f5c3a, { roughness: 0.35, side: THREE.DoubleSide, clearcoat: 0.6 }), -0.45, H - 0.5, z, R, false);
+      add(new THREE.CylinderGeometry(0.004, 0.004, 0.45, 6), std(0x111111), -0.45, H - 0.22, z, R, false);
+      add(new THREE.ConeGeometry(0.17, 0.16, 24, 1, true), phys(0x1f5c3a, { roughness: 0.35, side: THREE.DoubleSide, clearcoat: 0.6 }), -0.45, H - 0.5, z, R, false);
       add(new THREE.SphereGeometry(0.045, 12, 10), new THREE.MeshBasicMaterial({ color: new THREE.Color(2.5, 2.0, 1.3) }), -0.45, H - 0.56, z, R, false);
-      void cord; void shade;
     }
     const l1 = new THREE.PointLight(0xffc98a, 3.2, 7, 1.4);
     l1.position.set(-0.2, H - 0.25, 0);
-    const l2 = new THREE.PointLight(0xfff0dd, 1.4, 3.5, 1.4);
-    l2.position.set(0.3, H - 0.2, -0.1);
+    const l2 = new THREE.PointLight(0xfff0dd, 1.5, 3.8, 1.4);
+    l2.position.set(0.3, H - 0.2, -0.4);
     R.add(l1, l2);
-    this.lights.push(l1, l2);
 
-    // humo/vapor de la cocina (en coordenadas del vagón)
-    this.steam = new Particles(R, 200, { soft: true, drag: 1.5, gravity: 0.6 });
+    this.steam = new Particles(R, 220, { soft: true, drag: 1.5, gravity: 0.6 });
     this.steamCol = new THREE.Color(0.85, 0.85, 0.88);
     this.burnCol = new THREE.Color(0.2, 0.18, 0.18);
   }
@@ -384,7 +463,6 @@ export class BarMode {
   // ---------- Ciclo de vida ----------
 
   attach(train) {
-    this.train = train;
     this.car = train.cars[2];
     this.hidden = [];
     for (const ch of this.car.g.children) {
@@ -412,22 +490,28 @@ export class BarMode {
     this.served = 0;
     this.angry = 0;
     this.perfect = 0;
+    this.mistakes = 0;
     this.spawnT = 2;
     this.elapsed = 0;
     for (const c of this.customers) this.removeCustomer(c);
     this.customers = [];
     this.stoolUsed = [false, false, false];
     for (const s of this.slots) this.clearSlot(s);
+    for (const sp of this.spots) this.clearSpot(sp);
     this.fryer = { state: 'idle', t: 0 };
     this.basket.position.y = 0.04;
     this.friesInBasket.visible = false;
+    this.setBoard(null);
     this.setHand(null);
     this.filling = null;
     this.yawDrag = 0;
+    this.tut = {};
+    this.handRig.visible = true;
     this.camera.near = 0.06;
     this.camera.updateProjectionMatrix();
     this.ui.hud.hidden = false;
     this.hint('Tu primer cliente está a punto de llegar', 3);
+    this.ticketsDirty = true;
     this.renderHud();
   }
 
@@ -436,7 +520,10 @@ export class BarMode {
     for (const c of this.customers) this.removeCustomer(c);
     this.customers = [];
     for (const s of this.slots) this.clearSlot(s);
+    for (const sp of this.spots) this.clearSpot(sp);
+    this.setBoard(null);
     this.setHand(null);
+    this.handRig.visible = false;
     this.detach();
     this.camera.near = 0.3;
     this.camera.updateProjectionMatrix();
@@ -446,7 +533,12 @@ export class BarMode {
   }
 
   results() {
-    return { money: this.money, served: this.served, angry: this.angry, perfect: this.perfect };
+    return { money: this.money, served: this.served, angry: this.angry, perfect: this.perfect, mistakes: this.mistakes };
+  }
+
+  /** Al terminar, se cobra lo que quedara en la barra. */
+  collectAll() {
+    for (const sp of this.spots) if (sp.dirty) this.money += sp.money;
   }
 
   // ---------- Cámara e interacción ----------
@@ -459,12 +551,22 @@ export class BarMode {
     this.root.updateWorldMatrix(true, false);
     camera.position.copy(CAM).applyMatrix4(this.root.matrixWorld);
     this.root.getWorldQuaternion(_q);
-    // amortiguar el balanceo del vagón para que no maree
     _q2.setFromEuler(_e.set(pitch, Math.PI / 2 + this.yaw, 0, 'YXZ'));
     camera.quaternion.copy(_q).multiply(_q2);
-    // mano: pequeño vaivén
+
+    // la mano se estira hacia lo que tocas
     const t = performance.now() / 1000;
-    this.handGroup.position.set(0.26, -0.25 + Math.sin(t * 2) * 0.005, -0.55);
+    const rig = this.handRig;
+    rig.position.copy(HAND_BASE);
+    rig.position.y += Math.sin(t * 2) * 0.004;
+    rig.rotation.set(0.15, -0.25, 0.1);
+    if (this.reach) {
+      this.reach.t += dt;
+      const k = Math.sin(Math.min(1, this.reach.t / 0.26) * Math.PI);
+      rig.position.lerp(this.reach.target, k * 0.55);
+      rig.rotation.x += k * 0.35;
+      if (this.reach.t >= 0.26) this.reach = null;
+    }
   }
 
   pointerLook(nx, ny, isMouse) {
@@ -486,58 +588,86 @@ export class BarMode {
     for (const h of hits) {
       let o = h.object;
       while (o && !o.userData.action && !o.userData.customer) o = o.parent;
-      if (o) return o;
+      if (o) return { o, point: h.point };
     }
     return null;
   }
 
   hover(nx, ny, px, py) {
-    const o = this.pick(nx, ny);
+    const hit = this.pick(nx, ny);
     const tip = this.ui.tip;
-    if (!o) {
+    if (!hit) {
       tip.hidden = true;
       return;
     }
+    const o = hit.o;
     let label = o.userData.label;
     if (o.userData.customer) {
       const c = o.userData.customer;
-      label = c.state === 'waiting' ? (this.hand ? 'Servir' : 'Cliente esperando') : 'Cliente';
+      label = c.state === 'waiting' ? (this.hand ? 'Servir a ' + c.name : c.name + ' · ' + c.order.filter((x) => !x.done).map(F.orderLabel).join(' + ')) : c.name;
     } else if (o.userData.action === 'slot') {
       const s = this.slots[o.userData.idx];
       label = s.item ? F.itemLabel(s.item) : 'Plancha (hueco libre)';
     } else if (o.userData.action === 'fryer') {
       label = this.fryer.state === 'idle' ? 'Freidora · pulsa para freír' : 'Patatas ' + ({ raw: 'friéndose', ok: 'listas', burnt: 'quemadas' })[F.quality('fries', this.fryer.t)];
+    } else if (o.userData.action === 'board') {
+      label = this.board ? 'Tabla: ' + this.boardLabel() : 'Tabla de montaje (vacía)';
+    } else if (o.userData.action === 'spot') {
+      const sp = this.spots[o.userData.idx];
+      label = sp.dirty ? 'Recoger plato y $' + sp.money : 'Asiento ' + (sp.idx + 1);
     }
     tip.textContent = label;
-    tip.style.left = px + 14 + 'px';
+    tip.style.left = Math.min(px + 14, innerWidth - 240) + 'px';
     tip.style.top = py + 14 + 'px';
     tip.hidden = false;
   }
 
   click(nx, ny) {
-    const o = this.pick(nx, ny);
-    if (!o) return;
+    const hit = this.pick(nx, ny);
+    if (!hit) return;
+    // la mano se estira hacia el punto tocado
+    const local = this.camera.worldToLocal(hit.point.clone());
+    this.reach = { t: 0, target: local };
+    const o = hit.o;
     if (o.userData.customer) this.serve(o.userData.customer);
     else this.act(o.userData.action, o.userData);
+    this.renderHud();
+  }
+
+  /** Botón Soltar: tira lo que llevas o, con las manos libres, vacía la tabla. */
+  drop() {
+    if (!this.active) return;
+    if (this.filling) return this.hint('Espera a que se llene el vaso');
+    if (this.hand) {
+      this.hint(F.itemLabel(this.hand) + ' a la basura');
+      this.setHand(null);
+      this.sfx.trash();
+    } else if (this.board) {
+      this.setBoard(null);
+      this.hint('Has vaciado la tabla');
+      this.sfx.trash();
+    } else {
+      this.hint('No tienes nada que soltar');
+    }
     this.renderHud();
   }
 
   act(action, data) {
     const hand = this.hand;
     if (this.filling) return this.hint('Espera a que se llene el vaso');
+    const busy = () => this.hint('Tienes las manos ocupadas · usa Soltar si te has equivocado');
     switch (action) {
       case 'patty':
       case 'sausage': {
-        if (hand) return this.hint('Tienes las manos ocupadas');
+        if (hand) return busy();
         const s = this.slots.find((sl) => !sl.item);
         if (!s) return this.hint('La plancha está llena');
         this.putOnGrill(s, { kind: action, t: 0 });
         this.sfx.plop();
         return;
       }
-      case 'grill':
       case 'slot': {
-        const s = data.idx !== undefined ? this.slots[data.idx] : this.slots.find((sl) => sl.item) || this.slots[0];
+        const s = this.slots[data.idx];
         if (s.item && !hand) {
           this.setHand({ kind: s.item.kind, t: s.item.t });
           this.clearSlot(s);
@@ -549,51 +679,125 @@ export class BarMode {
           return;
         }
         if (!s.item) return this.hint('Coge carne o salchichas de las bandejas');
-        return this.hint('Tienes las manos ocupadas');
+        return busy();
       }
       case 'fryer': {
         const fr = this.fryer;
         if (fr.state === 'idle') {
-          if (hand) return this.hint('Tienes las manos ocupadas');
+          if (hand) return busy();
           fr.state = 'frying';
           fr.t = 0;
           this.friesInBasket.visible = true;
           this.sfx.plop();
           return;
         }
-        if (hand) return this.hint('Tienes las manos ocupadas');
+        if (hand) return busy();
         const q = F.quality('fries', fr.t);
         if (q === 'raw') return this.hint('Las patatas aún se están friendo');
-        this.setHand({ kind: 'fries', q, t: fr.t });
+        this.setHand({ kind: 'fries', q, t: fr.t, salt: false });
         fr.state = 'idle';
         this.friesInBasket.visible = false;
         return;
       }
+      case 'salt':
+        if (!hand || hand.kind !== 'fries') return this.hint('El salero es para las patatas');
+        if (hand.salt) return this.hint('Ya tienen sal');
+        this.setHand(Object.assign({}, hand, { salt: true }));
+        this.sfx.shake();
+        return;
+      case 'bunB':
+      case 'bunH': {
+        if (this.board) return this.hint('La tabla ya está ocupada · usa Soltar para vaciarla');
+        if (hand && hand.kind !== 'patty' && hand.kind !== 'sausage') return busy();
+        this.setBoard(action === 'bunB' ? { type: 'burger', meat: null, mods: [] } : { type: 'hotdog', meat: null, mods: [] });
+        this.sfx.plop();
+        if (!this.tut.bun) {
+          this.tut.bun = true;
+          this.hint(action === 'bunB' ? 'Pon la carne hecha y los ingredientes que pida' : 'Pon la salchicha y las salsas que pida', 3);
+        }
+        return;
+      }
       case 'board': {
-        if (!hand) return this.hint('Pon aquí la carne o la salchicha de la plancha');
-        if (hand.kind === 'patty') return this.setHand({ kind: 'burger', q: F.quality('patty', hand.t) });
-        if (hand.kind === 'sausage') return this.setHand({ kind: 'hotdog', q: F.quality('sausage', hand.t) });
-        return this.hint('Aquí solo se montan hamburguesas y perritos');
+        const b = this.board;
+        if (!b) {
+          if (hand && (hand.kind === 'patty' || hand.kind === 'sausage')) return this.hint('Primero coge un pan de la cesta');
+          return this.hint('Coge un pan de la cesta para empezar');
+        }
+        if (hand) {
+          if (hand.kind === 'patty' && b.type === 'burger' && !b.meat) {
+            b.meat = { t: hand.t };
+            this.setHand(null);
+            return this.setBoard(b);
+          }
+          if (hand.kind === 'sausage' && b.type === 'hotdog' && !b.meat) {
+            b.meat = { t: hand.t };
+            this.setHand(null);
+            return this.setBoard(b);
+          }
+          if (hand.kind === 'patty' || hand.kind === 'sausage') return this.hint(b.meat ? 'Ya tiene ' + (b.type === 'burger' ? 'carne' : 'salchicha') : 'Ese pan no es para eso');
+          return busy();
+        }
+        // con las manos libres: recoger lo montado
+        if (!b.meat) return this.hint(b.type === 'burger' ? 'Falta la carne' : 'Falta la salchicha');
+        if (b.type === 'burger') this.setHand({ kind: 'burger', q: F.quality('patty', b.meat.t), tops: [...b.mods] });
+        else this.setHand({ kind: 'hotdog', q: F.quality('sausage', b.meat.t), sauces: [...b.mods] });
+        this.setBoard(null);
+        return;
+      }
+      case 'cheese':
+      case 'lettuce':
+      case 'tomato':
+      case 'onion':
+      case 'ketchup':
+      case 'mustard': {
+        const b = this.board;
+        if (!b) return this.hint('Primero pon un pan en la tabla');
+        const isSauce = action === 'ketchup' || action === 'mustard';
+        if (b.type === 'burger' && isSauce) return this.hint('Las salsas son para los perritos');
+        if (b.type === 'hotdog' && !isSauce) return this.hint('Al perrito solo se le echan salsas');
+        if (b.mods.includes(action)) return this.hint('Ya lleva ' + F.MOD_NAMES[action]);
+        b.mods.push(action);
+        this.setBoard(b);
+        if (isSauce) this.sfx.squirt();
+        else this.sfx.plop();
+        return;
       }
       case 'cups':
-        if (hand) return this.hint('Tienes las manos ocupadas');
-        return this.setHand({ kind: 'cup', fill: null });
-      case 'tap':
-      case 'machine': {
+        if (hand) return busy();
+        return this.setHand({ kind: 'cup', fill: null, ice: false });
+      case 'ice':
+        if (!hand || hand.kind !== 'cup') return this.hint('Coge primero un vaso');
+        if (hand.fill) return this.hint('El hielo se pone antes del refresco');
+        if (hand.ice) return this.hint('Ya tiene hielo');
+        this.setHand(Object.assign({}, hand, { ice: true }));
+        this.sfx.ice();
+        return;
+      case 'tap': {
         if (!hand || hand.kind !== 'cup') return this.hint('Coge primero un vaso');
         if (hand.fill) return this.hint('El vaso ya está lleno');
-        const drink = data.drink || 'cola';
-        const tap = TAPS.findIndex((t) => t.drink === drink);
-        this.filling = { drink, t: 0, tap };
+        const tap = TAPS.findIndex((t) => t.flavor === data.flavor);
+        this.filling = { flavor: data.flavor, t: 0, tap };
         this.streams[tap].visible = true;
         this.sfx.pour();
         return;
       }
       case 'trash':
-        if (!hand) return this.hint('La papelera está vacía');
-        this.setHand(null);
-        this.sfx.trash();
-        return;
+        if (this.hand) return this.drop();
+        return this.hint('No llevas nada que tirar');
+      case 'spot': {
+        const sp = this.spots[data.idx];
+        if (sp.dirty) {
+          if (hand) return this.hint('Necesitas las manos libres para recoger · usa Soltar');
+          this.money += sp.money;
+          this.pop('+$' + sp.money + (sp.tip ? ' · propina $' + sp.tip : ''));
+          this.clearSpot(sp);
+          this.sfx.register();
+          return;
+        }
+        const c = this.customers.find((cu) => cu.stool === data.idx && cu.state === 'waiting');
+        if (c) return this.serve(c);
+        return this.hint(hand ? 'No hay nadie esperando en ese asiento' : 'Asiento ' + (sp.idx + 1));
+      }
       default:
     }
   }
@@ -606,6 +810,7 @@ export class BarMode {
     this.root.add(m);
     s.mesh = m;
     s.dot.visible = true;
+    s.warned = false;
   }
 
   clearSlot(s) {
@@ -615,76 +820,164 @@ export class BarMode {
     s.dot.visible = false;
   }
 
+  setBoard(b) {
+    this.board = b;
+    const g = this.boardGroup;
+    while (g.children.length) g.remove(g.children[0]);
+    if (b) {
+      const m = b.type === 'burger'
+        ? F.makeBurger({ tops: b.mods, patty: !!b.meat, pattyT: b.meat && b.meat.t, closed: false, plate: false })
+        : F.makeHotdog({ sauces: b.mods, sausage: !!b.meat, sausageT: b.meat && b.meat.t, tray: false });
+      m.rotation.y = Math.PI / 2;
+      g.add(m);
+    }
+    this.renderHud();
+  }
+
+  boardLabel() {
+    const b = this.board;
+    if (!b) return '';
+    const meat = b.meat ? (b.type === 'burger' ? 'carne' : 'salchicha') : 'sin ' + (b.type === 'burger' ? 'carne' : 'salchicha');
+    return (b.type === 'burger' ? 'hamburguesa' : 'perrito') + ' (' + [meat, ...b.mods.map((k) => F.MOD_NAMES[k])].join(', ') + ')';
+  }
+
   setHand(item) {
     this.hand = item;
-    while (this.handGroup.children.length) this.handGroup.remove(this.handGroup.children[0]);
+    const g = this.handItem;
+    while (g.children.length) g.remove(g.children[0]);
+    this.handModel = null;
     if (item) {
       const m = F.makeHeld(item);
       m.rotation.y = -0.4;
-      if (item.kind === 'patty') m.position.y = 0.02;
-      this.handGroup.add(m);
+      g.add(m);
       this.handModel = m;
     }
-    this.handGroup.visible = !!item;
-    if (item && F.orderKey(item) && !this.tutServe) {
-      this.tutServe = true;
-      this.hint('Ahora pulsa sobre el cliente para servirle', 3.5);
+    if (item && F.asOrder(item) && !this.tut.serve) {
+      this.tut.serve = true;
+      this.hint('Pulsa sobre el cliente (o su sitio en la barra) para servirle', 3.5);
     }
     this.renderHud();
   }
 
   serve(c) {
-    if (c.state !== 'waiting') return this.hint(c.state === 'think' ? 'Está decidiendo qué pedir' : 'Este cliente ya está servido');
-    if (!this.hand) return this.hint('Prepara su pedido y pulsa sobre el cliente para servirlo');
-    const key = F.orderKey(this.hand);
-    if (!key) {
-      return this.hint(this.hand.kind === 'cup' ? 'El vaso está vacío' : 'Primero ponlo en un pan');
+    if (c.state !== 'waiting') return this.hint(c.state === 'think' ? c.name + ' está decidiendo qué pedir' : c.name + ' ya está servido');
+    if (!this.hand) return this.hint('Prepara su pedido y pulsa sobre ' + c.name + ' para servirle');
+    const got = F.asOrder(this.hand);
+    if (!got) {
+      if (this.hand.kind === 'cup') return this.hint(this.hand.ice ? 'Falta el refresco' : 'El vaso está vacío');
+      return this.hint('Primero móntalo en un pan');
     }
-    const o = c.order.find((it) => it.key === key && !it.done);
-    if (!o) {
+    const pending = c.order.filter((it) => !it.done);
+    const exact = pending.find((it) => F.matches(it, got));
+    const sameKind = pending.find((it) => it.key === got.key);
+    if (!exact && !sameKind) {
       c.say('¡Eso no lo he pedido!');
       c.model.setMood('impatient');
-      this.sfx.angry(0.4);
+      c.moodT = 1.2;
+      this.sfx.voice(c.voice, 3);
       return;
     }
-    const q = this.hand.q || 'ok';
+    const q = got.q || 'ok';
     this.setHand(null);
     if (q !== 'ok') {
+      this.mistakes++;
       c.patience -= c.maxPatience * 0.25;
       c.model.setMood('disgust');
-      c.moodT = 1.6;
-      c.say(q === 'raw' ? '¡Está crudo!' : '¡Está quemado!');
+      c.moodT = 1.8;
+      c.say(q === 'raw' ? '¡Esto está crudo!' : '¡Esto está quemado!');
       this.sfx.angry(0.6);
       return;
     }
-    o.done = true;
+    if (!exact) {
+      this.mistakes++;
+      c.patience -= c.maxPatience * 0.2;
+      c.model.setMood('disgust');
+      c.moodT = 1.8;
+      c.say(F.complaint(sameKind, got));
+      this.sfx.voice(c.voice, 4);
+      c.dirty = true;
+      return;
+    }
+    exact.done = true;
     this.perfect++;
     c.dirty = true;
+    this.ticketsDirty = true;
+    this.placeServed(c, exact);
     this.sfx.serveItem();
     if (c.order.every((it) => it.done)) {
-      const price = c.order.reduce((s, it) => s + F.ITEMS[it.key].price, 0);
+      const total = c.order.reduce((s, it) => s + F.price(it), 0);
       const frac = Math.max(0, c.patience / c.maxPatience);
-      const tip = Math.round(price * 0.7 * frac);
-      this.money += price + tip;
+      c.bill = Math.round(total);
+      c.tip = Math.round(total * 0.7 * frac);
       this.served++;
       c.state = 'eating';
       c.t = 0;
       c.model.setMood('happy');
-      c.say(tip >= price * 0.4 ? '¡Rapidísimo, gracias!' : '¡Gracias!');
-      this.pop(`+$${price}` + (tip ? ` · propina $${tip}` : ''));
-      this.sfx.register();
-      this.tipCoins.scale.y = Math.min(12, 1 + this.served * 0.8);
+      c.model.eating = true;
+      c.say(c.tip >= total * 0.4 ? '¡Rapidísimo, gracias!' : '¡Gracias!');
+      this.sfx.voice(c.voice, 4);
     } else {
       c.model.setMood('neutral');
       c.say('¡Bien! ¿Y lo demás?');
+      this.sfx.voice(c.voice, 2);
+    }
+  }
+
+  placeServed(c, o) {
+    const sp = this.spots[c.stool];
+    const m = F.makeServed(o);
+    const n = sp.models.length;
+    m.position.set((n % 2) * 0.12 - 0.04, 0, -0.16 + n * 0.16);
+    m.rotation.y = Math.PI / 2;
+    sp.group.add(m);
+    sp.models.push(m);
+  }
+
+  clearSpot(sp) {
+    while (sp.group.children.length) sp.group.remove(sp.group.children[0]);
+    sp.models = [];
+    sp.dirty = false;
+    sp.money = 0;
+    sp.tip = 0;
+  }
+
+  /** El cliente se va: deja platos sucios y el dinero (cuenta + propina) en la barra. */
+  leaveMess(c) {
+    const sp = this.spots[c.stool];
+    for (const m of sp.models) {
+      m.scale.multiplyScalar(0.9);
+      m.traverse((o) => {
+        if (o.isMesh && o.material && o.material.color) {
+          o.material = o.material.clone();
+          o.material.color.multiplyScalar(0.55);
+        }
+      });
+    }
+    // billete y monedas
+    const bill = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.002, 0.06), new THREE.MeshStandardMaterial({ color: 0x6f9a5a, roughness: 0.8 }));
+    bill.position.set(0.12, 0.002, 0.1);
+    bill.rotation.y = 0.3;
+    sp.group.add(bill);
+    const coinMat = this.mats.brass;
+    for (let i = 0; i < Math.min(6, 1 + c.tip); i++) {
+      const coin = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.003, 14), coinMat);
+      coin.position.set(0.1 + (i % 3) * 0.026, 0.004 + Math.floor(i / 3) * 0.003, 0.17);
+      sp.group.add(coin);
+    }
+    sp.dirty = true;
+    sp.money = (c.bill || 0) + (c.tip || 0);
+    sp.tip = c.tip || 0;
+    if (!this.tut.mess) {
+      this.tut.mess = true;
+      this.hint('Pulsa en su sitio de la barra para cobrar y recoger el plato', 4);
     }
   }
 
   // ---------- Clientes ----------
 
   spawnCustomer() {
-    const free = this.stoolUsed.map((u, i) => (u ? -1 : i)).filter((i) => i >= 0);
-    if (!free.length) return;
+    const free = this.stoolUsed.map((u, i) => (u || this.spots[i].dirty ? -1 : i)).filter((i) => i >= 0);
+    if (!free.length) return false;
     const stool = free[Math.floor(Math.random() * free.length)];
     this.stoolUsed[stool] = true;
     const model = new Customer();
@@ -693,20 +986,22 @@ export class BarMode {
     model.walk = 1;
     model.walkPhase = 0;
     this.root.add(model.root);
+    const NAMES = ['Ana', 'Luis', 'Marta', 'Jorge', 'Lucía', 'Pablo', 'Sara', 'Diego', 'Elena', 'Hugo', 'Nora', 'Iván', 'Carla', 'Raúl', 'Inés', 'Tomás'];
     const c = {
       model, stool, z: STOOLS[stool], state: 'enter', t: 0, order: [], patience: 1, maxPatience: 1, moodT: 0,
       bubble: this.makeBubble(), dirty: true, speech: null, speechT: 0,
+      name: NAMES[Math.floor(Math.random() * NAMES.length)], voice: 0.75 + Math.random() * 0.7,
     };
     model.root.traverse((m) => (m.userData.customer = c));
-    model.root.userData.customer = c;
     c.say = (text) => {
       c.speech = text;
-      c.speechT = 2.2;
+      c.speechT = 2.4;
       c.dirty = true;
     };
     this.root.add(c.bubble);
     this.customers.push(c);
     this.sfx.bell();
+    return true;
   }
 
   removeCustomer(c) {
@@ -718,26 +1013,30 @@ export class BarMode {
 
   makeOrder() {
     const progress = Math.min(1, this.elapsed / SHIFT);
-    const n = Math.random() < 0.45 - progress * 0.2 ? 1 : Math.random() < 0.8 ? 2 : 3;
-    const pool = ['cola', 'naranja', 'limon', 'burger', 'burger', 'hotdog', 'hotdog', 'fries', 'fries'];
+    const n = Math.random() < 0.5 - progress * 0.25 ? 1 : Math.random() < 0.75 ? 2 : 3;
     const order = [];
+    const kinds = ['burger', 'burger', 'hotdog', 'fries', 'drink', 'drink'];
     for (let i = 0; i < n; i++) {
-      let k = pool[Math.floor(Math.random() * pool.length)];
-      // como mucho una bebida por pedido
-      if (F.DRINKS.includes(k) && order.some((o) => F.DRINKS.includes(o.key))) k = 'fries';
-      order.push({ key: k, done: false });
+      let k = kinds[Math.floor(Math.random() * kinds.length)];
+      if (k === 'drink' && order.some((o) => o.key === 'drink')) k = 'fries';
+      if (k === 'fries' && order.some((o) => o.key === 'fries')) k = 'burger';
+      const extraP = 0.35 + progress * 0.3;
+      if (k === 'burger') order.push({ key: 'burger', tops: F.TOPPINGS.filter(() => Math.random() < extraP).sort(), done: false });
+      else if (k === 'hotdog') order.push({ key: 'hotdog', sauces: F.SAUCES.filter(() => Math.random() < 0.55).sort(), done: false });
+      else if (k === 'fries') order.push({ key: 'fries', salt: Math.random() < 0.6, done: false });
+      else order.push({ key: 'drink', flavor: Object.keys(F.FLAVORS)[Math.floor(Math.random() * 3)], ice: Math.random() < 0.55, done: false });
     }
     return order;
   }
 
   makeBubble() {
     const canvas = document.createElement('canvas');
-    canvas.width = 320;
-    canvas.height = 200;
+    canvas.width = 420;
+    canvas.height = 240;
     const tex = new THREE.CanvasTexture(canvas);
     tex.colorSpace = THREE.SRGBColorSpace;
-    const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true }));
-    s.scale.set(0.56, 0.35, 1);
+    const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true, toneMapped: false }));
+    s.scale.set(0.6, 0.343, 1);
     s.renderOrder = 9;
     s.visible = false;
     s.userData.canvas = canvas;
@@ -747,8 +1046,8 @@ export class BarMode {
   drawBubble(c) {
     const cv = c.bubble.userData.canvas;
     const g = cv.getContext('2d');
-    g.clearRect(0, 0, cv.width, cv.height);
     const w = cv.width, h = cv.height;
+    g.clearRect(0, 0, w, h);
     g.fillStyle = 'rgba(255,255,255,0.96)';
     g.strokeStyle = 'rgba(0,0,0,0.25)';
     g.lineWidth = 4;
@@ -759,27 +1058,35 @@ export class BarMode {
     g.lineTo(w / 2 + 18, h - 41);
     g.fill();
     g.stroke();
+    g.fillStyle = '#7a6a5a';
+    g.font = "700 20px 'Inter', Arial, sans-serif";
+    g.textAlign = 'left';
+    g.fillText((c.stool + 1) + ' · ' + c.name, 26, 36);
     if (c.speech) {
       g.fillStyle = '#1b1b1b';
       g.font = "700 30px 'Inter', Arial, sans-serif";
       g.textAlign = 'center';
       g.textBaseline = 'middle';
-      g.fillText(c.speech, w / 2, (h - 40) / 2 + 4, w - 40);
+      g.fillText(c.speech, w / 2, (h - 40) / 2 + 12, w - 40);
+      g.textBaseline = 'alphabetic';
     } else if (c.state === 'think') {
       g.fillStyle = '#555';
       for (let i = 0; i < 3; i++) {
         g.beginPath();
-        g.arc(w / 2 - 30 + i * 30, (h - 40) / 2, 9 + (Math.floor(performance.now() / 250) % 3 === i ? 4 : 0), 0, Math.PI * 2);
+        g.arc(w / 2 - 30 + i * 30, (h - 40) / 2 + 10, 9 + (Math.floor(performance.now() / 250) % 3 === i ? 4 : 0), 0, Math.PI * 2);
         g.fill();
       }
     } else {
       const n = c.order.length;
-      const size = 84;
-      const startX = w / 2 - ((n - 1) * 96) / 2;
+      const step = 128;
+      const startX = w / 2 - ((n - 1) * step) / 2;
       c.order.forEach((o, i) => {
-        const x = startX + i * 96, y = 72;
+        const x = startX + i * step, y = 88;
         g.globalAlpha = o.done ? 0.3 : 1;
-        F.drawIcon(g, o.key, x, y, size);
+        F.drawIcon(g, o, x, y, 74);
+        const mods = F.modsOf(o);
+        const mw = 27;
+        mods.forEach((m, j) => F.drawMod(g, m, x - ((mods.length - 1) * mw) / 2 + j * mw, 146, 24));
         g.globalAlpha = 1;
         if (o.done) {
           g.strokeStyle = '#1fa64a';
@@ -791,15 +1098,14 @@ export class BarMode {
           g.stroke();
         }
       });
-      // barra de paciencia
       const f = Math.max(0, c.patience / c.maxPatience);
       g.fillStyle = 'rgba(0,0,0,0.12)';
       g.beginPath();
-      g.roundRect(34, h - 66, w - 68, 12, 6);
+      g.roundRect(34, h - 64, w - 68, 10, 5);
       g.fill();
       g.fillStyle = `hsl(${Math.round(f * 120)}, 75%, 45%)`;
       g.beginPath();
-      g.roundRect(34, h - 66, (w - 68) * f, 12, 6);
+      g.roundRect(34, h - 64, (w - 68) * f, 10, 5);
       g.fill();
     }
     c.bubble.material.map.needsUpdate = true;
@@ -813,9 +1119,8 @@ export class BarMode {
       c.t += dt;
       const p = m.root.position;
       if (c.state === 'enter') {
-        const tz = c.z;
-        if (p.z > tz + 0.02) {
-          p.z = Math.max(tz, p.z - dt * 1.25);
+        if (p.z > c.z + 0.02) {
+          p.z = Math.max(c.z, p.z - dt * 1.25);
           m.walkPhase += dt * 8;
         } else {
           c.state = 'sit';
@@ -833,17 +1138,19 @@ export class BarMode {
           c.dirty = true;
         }
       } else if (c.state === 'think') {
-        if (c.t > 1.4) {
+        if (c.t > 1.6) {
           c.order = this.makeOrder();
           const progress = Math.min(1, this.elapsed / SHIFT);
-          c.maxPatience = (34 + c.order.length * 12) * (1 - progress * 0.3);
+          const work = c.order.reduce((s, o) => s + (o.key === 'burger' ? 16 + o.tops.length * 2 : o.key === 'hotdog' ? 13 : o.key === 'fries' ? 11 : 6), 0);
+          c.maxPatience = (26 + work * 1.25) * (1 - progress * 0.25);
           c.patience = c.maxPatience;
           c.state = 'waiting';
           c.dirty = true;
-          this.sfx.orderPing();
-          if (!this.tutOrder) {
-            this.tutOrder = true;
-            this.hint('Mira su pedido en el bocadillo y prepáralo en tu mostrador', 4);
+          this.ticketsDirty = true;
+          this.sfx.voice(c.voice, 3 + c.order.length);
+          if (!this.tut.order) {
+            this.tut.order = true;
+            this.hint('Mira su pedido en el bocadillo o en las comandas y prepáralo', 4);
           }
         }
       } else if (c.state === 'waiting') {
@@ -857,12 +1164,28 @@ export class BarMode {
           c.say('¡Me voy!');
           this.stars--;
           this.angry++;
+          this.ticketsDirty = true;
           this.sfx.angry(1);
+          // lo que ya le habías servido se queda en la barra, sin cobrar
+          const sp = this.spots[c.stool];
+          if (sp.models.length) {
+            c.bill = 0;
+            c.tip = 0;
+            this.leaveMess(c);
+            sp.money = 0;
+          }
         }
       } else if (c.state === 'eating') {
-        if (c.t > 2.6) {
+        // la comida se va acabando
+        const k = Math.min(1, c.t / 7);
+        for (const mm of this.spots[c.stool].models) mm.scale.setScalar(1 - k * 0.35);
+        if (c.t > 7) {
+          m.eating = false;
           c.state = 'leave';
           c.t = 0;
+          this.leaveMess(c);
+          this.ticketsDirty = true;
+          c.say(Math.random() < 0.5 ? '¡Hasta luego!' : '¡Qué rico!');
         }
       } else if (c.state === 'leave') {
         const k = Math.min(1, c.t / 0.8);
@@ -889,7 +1212,6 @@ export class BarMode {
       }
       m.pose(t, dt, camWorld);
 
-      // bocadillo
       if (c.speechT > 0) {
         c.speechT -= dt;
         if (c.speechT <= 0) {
@@ -897,11 +1219,11 @@ export class BarMode {
           c.dirty = true;
         }
       }
-      const showBubble = c.speech || c.state === 'think' || c.state === 'waiting';
-      c.bubble.visible = !!showBubble;
-      c.bubble.position.set(p.x + 0.2, 1.9, p.z);
+      const show = c.speech || c.state === 'think' || c.state === 'waiting';
+      c.bubble.visible = !!show;
+      c.bubble.position.set(p.x + 0.2, 1.92, p.z);
       c.redrawT = (c.redrawT || 0) - dt;
-      if (showBubble && (c.dirty || c.redrawT <= 0)) {
+      if (show && (c.dirty || c.redrawT <= 0)) {
         this.drawBubble(c);
         c.dirty = false;
         c.redrawT = 0.25;
@@ -916,12 +1238,15 @@ export class BarMode {
     this.elapsed += dt;
     this.time -= dt;
 
-    // llegada de clientes: cada vez más seguidos
     this.spawnT -= dt;
-    if (this.time > 8 && this.spawnT <= 0) {
-      this.spawnCustomer();
+    if (this.time > 10 && this.spawnT <= 0) {
+      const ok = this.spawnCustomer();
       const progress = Math.min(1, this.elapsed / SHIFT);
-      this.spawnT = (15 - progress * 8) * (0.75 + Math.random() * 0.5);
+      this.spawnT = ok ? (17 - progress * 8) * (0.75 + Math.random() * 0.5) : 2;
+      if (!ok && this.spots.some((sp) => sp.dirty) && !this.tut.dirtyBlock) {
+        this.tut.dirtyBlock = true;
+        this.hint('Hay clientes esperando sitio: recoge los platos sucios', 3.5);
+      }
     }
     this.updateCustomers(dt, t);
 
@@ -945,7 +1270,6 @@ export class BarMode {
         this.hint('¡Se está quemando algo en la plancha!');
         this.sfx.burn();
       }
-      if (q !== 'burnt') s.warned = false;
     }
     this.grillGlow.material.opacity = cooking ? 0.25 + Math.sin(t * 3) * 0.05 : 0;
 
@@ -957,8 +1281,7 @@ export class BarMode {
       this.basket.position.y += (-0.05 - this.basket.position.y) * Math.min(1, dt * 6);
       const q = F.quality('fries', fr.t);
       this.fryLamp.material.color.set(q === 'raw' ? 0xffb020 : q === 'ok' ? 0x2bd66b : 0xff3b30);
-      F.setCook(this.friesInBasket.children[1], 'fries', fr.t);
-      for (let k = 1; k < this.friesInBasket.children.length; k++) cookColorTo(this.friesInBasket.children[k], fr.t);
+      F.cookColor('fries', fr.t, this.friesInBasket.userData.sticks.color);
       if (q === 'ok' && !fr.dinged) {
         fr.dinged = true;
         this.sfx.ding();
@@ -978,11 +1301,13 @@ export class BarMode {
     if (this.filling) {
       this.filling.t += dt;
       const k = Math.min(1, this.filling.t / 1.1);
-      if (this.handModel) F.setFill(this.handModel, this.filling.drink, k);
+      if (this.handModel) F.setFill(this.handModel, this.filling.flavor, k);
       if (k >= 1) {
         this.streams[this.filling.tap].visible = false;
-        this.setHand({ kind: 'cup', fill: this.filling.drink });
+        const ice = !!(this.hand && this.hand.ice);
+        const flavor = this.filling.flavor;
         this.filling = null;
+        this.setHand({ kind: 'cup', fill: flavor, ice });
       }
     }
     this.steam.update(dt);
@@ -998,8 +1323,9 @@ export class BarMode {
     }
 
     if (this.stars <= 0) return 'over';
-    if (this.time <= 0 && !this.customers.some((c) => c.state === 'waiting' || c.state === 'think')) return 'over';
-    if (this.time <= -25) return 'over';
+    const busy = this.customers.some((c) => ['enter', 'sit', 'think', 'waiting', 'eating'].includes(c.state));
+    if (this.time <= 0 && !busy) return 'over';
+    if (this.time <= -30) return 'over';
     return null;
   }
 
@@ -1012,7 +1338,36 @@ export class BarMode {
     u.clock.classList.toggle('low', this.time < 30);
     const spans = u.stars.children;
     for (let i = 0; i < spans.length; i++) spans[i].classList.toggle('lost', i >= this.stars);
-    u.hand.textContent = this.filling ? 'Llenando…' : this.hand ? 'En la mano: ' + F.itemLabel(this.hand) : 'Manos libres';
+    u.hand.textContent = this.filling ? 'Llenando…' : this.hand ? 'En la mano: ' + F.itemLabel(this.hand) : this.board ? 'En la tabla: ' + this.boardLabel() : 'Manos libres';
+    u.drop.disabled = !this.hand && !this.board;
+    this.renderTickets();
+  }
+
+  /** Comandas: un ticket por cliente con su pedido en texto. */
+  renderTickets() {
+    const el = this.ui.tickets;
+    if (!el) return;
+    const list = this.customers.filter((c) => c.state === 'waiting').sort((a, b) => a.stool - b.stool);
+    if (this.ticketsDirty) {
+      this.ticketsDirty = false;
+      el.innerHTML = list.map((c) => `
+        <div class="ticket" data-id="${c.stool}">
+          <div class="t-head"><span>Asiento ${c.stool + 1}</span><span>${c.name}</span></div>
+          ${c.order.map((o) => `<div class="t-line${o.done ? ' done' : ''}">${F.orderLabel(o)}</div>`).join('')}
+          <div class="t-bar"><i></i></div>
+        </div>`).join('');
+    }
+    for (const c of list) {
+      const bar = el.querySelector(`.ticket[data-id="${c.stool}"] .t-bar i`);
+      if (!bar) {
+        this.ticketsDirty = true;
+        continue;
+      }
+      const f = Math.max(0, c.patience / c.maxPatience);
+      bar.style.width = f * 100 + '%';
+      bar.style.background = `hsl(${Math.round(f * 120)}, 70%, 45%)`;
+    }
+    if (el.children.length !== list.length) this.ticketsDirty = true;
   }
 
   hint(text, dur = 1.8) {
@@ -1028,8 +1383,4 @@ export class BarMode {
     void el.offsetWidth;
     el.classList.add('go');
   }
-}
-
-function cookColorTo(mesh, t) {
-  if (mesh && mesh.material && mesh.material.color) F.cookColor('fries', t, mesh.material.color);
 }

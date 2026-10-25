@@ -194,6 +194,54 @@ export class Sfx {
     this.sizzleGain.gain.setTargetAtTime(Math.min(0.09, level * 0.03), this.ctx.currentTime, 0.15);
   }
 
+  shake() {
+    if (!this.ctx) return;
+    for (let i = 0; i < 3; i++) this.noiseBurst({ freq: 6000, type: 'highpass', gain: 0.08, decay: 0.05, when: i * 0.09 });
+  }
+
+  squirt() {
+    if (!this.ctx) return;
+    this.noiseBurst({ freq: 700, q: 3, gain: 0.15, attack: 0.02, decay: 0.3 });
+    this.tone(300, { type: 'sine', gain: 0.05, decay: 0.25, slide: 0.6 });
+  }
+
+  ice() {
+    if (!this.ctx) return;
+    for (let i = 0; i < 3; i++) this.tone(2400 + Math.random() * 1200, { type: 'triangle', gain: 0.06, decay: 0.06, when: i * 0.05 });
+  }
+
+  /** Voz inventada de los clientes: sílabas con formantes, cada cliente con su tono. */
+  voice(pitch = 1, n = 3) {
+    if (!this.ctx) return;
+    const ctx = this.ctx;
+    const VOWELS = [[730, 1090], [270, 2290], [530, 1840], [570, 840], [300, 870]];
+    let t = ctx.currentTime;
+    for (let i = 0; i < n; i++) {
+      const dur = 0.07 + Math.random() * 0.06;
+      const o = ctx.createOscillator();
+      o.type = 'sawtooth';
+      const f0 = 160 * pitch * (0.9 + Math.random() * 0.25);
+      o.frequency.setValueAtTime(f0, t);
+      o.frequency.linearRampToValueAtTime(f0 * (0.92 + Math.random() * 0.16), t + dur);
+      const v = VOWELS[(Math.random() * VOWELS.length) | 0];
+      const out = ctx.createGain();
+      out.gain.setValueAtTime(0.0001, t);
+      out.gain.exponentialRampToValueAtTime(0.06, t + 0.015);
+      out.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      for (const fr of v) {
+        const bp = ctx.createBiquadFilter();
+        bp.type = 'bandpass';
+        bp.frequency.value = fr * (pitch > 1.1 ? 1.15 : 1);
+        bp.Q.value = 6;
+        o.connect(bp).connect(out);
+      }
+      out.connect(this.master);
+      o.start(t);
+      o.stop(t + dur + 0.02);
+      t += dur + 0.02 + Math.random() * 0.03;
+    }
+  }
+
   plop() {
     if (!this.ctx) return;
     this.tone(220, { type: 'sine', gain: 0.15, decay: 0.12, slide: 0.5 });

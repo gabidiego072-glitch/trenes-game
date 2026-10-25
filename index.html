@@ -146,7 +146,14 @@
       <div class="bar-chip"><span class="lbl">Turno</span><strong id="bClock">4:00</strong></div>
       <div class="bar-chip"><span class="lbl">Reseñas</span><span id="bStars" class="stars"><span>★</span><span>★</span><span>★</span></span></div>
     </div>
-    <div id="bHand" class="bar-hand">Manos libres</div>
+    <div class="bar-bottom">
+      <div id="bHand" class="bar-hand">Manos libres</div>
+      <button id="bDrop" class="bar-drop" title="Soltar lo que llevas o vaciar la tabla (Q · clic derecho)">
+        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3m-8 0 1 13h8l1-13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Soltar <kbd>Q</kbd>
+      </button>
+    </div>
+    <div id="bTickets" class="bar-tickets" aria-label="Comandas"></div>
     <div id="bHint" class="bar-hint"></div>
     <div id="bPop" class="bar-pop"></div>
     <div id="bTip" class="bar-tip" hidden></div>
@@ -166,6 +173,7 @@
         <div><span class="lbl">Clientes servidos</span><strong id="boServed">0</strong></div>
         <div><span class="lbl">Platos bien hechos</span><strong id="boPerfect">0</strong></div>
         <div><span class="lbl">Se fueron enfadados</span><strong id="boAngry">0</strong></div>
+        <div><span class="lbl">Errores al servir</span><strong id="boMistakes">0</strong></div>
         <div><span class="lbl">Récord</span><strong id="boRecord">$0</strong></div>
       </div>
       <button id="boAgain" class="primary">Otro turno</button>

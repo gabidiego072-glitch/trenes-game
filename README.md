@@ -24,12 +24,15 @@ Juego 3D para el navegador en tercera persona. El tren avanza solo y tú decides
 
 Desde el menú, **Modo bar** (o la tecla `B`): trabajas de camarero en primera persona dentro del vagón restaurante mientras el tren recorre la ciudad, el campo y las montañas por su cuenta.
 
-- Los clientes entran, se sientan en la barra y te piden con un bocadillo: refrescos (cola, naranja, limón), hamburguesas, perritos y patatas.
-- **Refrescos:** coge un vaso y pulsa el grifo.
-- **Hamburguesa / perrito:** pon carne o salchicha en la plancha, espera a que el indicador se ponga verde, cógela y llévala a la tabla de panes. Si la dejas demasiado, se quema.
-- **Patatas:** pulsa la freidora y recógelas cuando la luz se ponga verde.
-- Pulsa sobre el cliente para servirle. Si sirves algo crudo o quemado, se enfada. Cuanto antes completes el pedido, más propina.
-- El turno dura 4 minutos. Si se te van enfadados 3 clientes, se cierra el bar.
+- Los clientes entran, se sientan y piden. El pedido sale en su bocadillo y en las **comandas** de la derecha (con el número de asiento).
+- **Hamburguesa:** carne a la plancha hasta que el indicador se ponga verde, pan de la cesta a la tabla, la carne encima y los ingredientes que pida (queso, lechuga, tomate, cebolla). Pulsa la tabla con las manos libres para cogerla.
+- **Perrito:** pan de perrito, salchicha hecha y las salsas pedidas (kétchup, mostaza).
+- **Refresco:** vaso, hielo si lo pide (antes del refresco) y el grifo del sabor.
+- **Patatas:** freidora hasta la luz verde y sal si la piden.
+- Pulsa sobre el cliente o su sitio de la barra para servir. Si te equivocas te lo dice ("¡Le falta queso!", "¡Lo pedí sin hielo!") y pierde paciencia. Crudo o quemado, también.
+- **Soltar** (botón, tecla `Q` o clic derecho): tira lo que llevas en la mano o, con las manos libres, vacía la tabla.
+- Al terminar de comer, el cliente deja el plato sucio y el dinero. Pulsa su sitio para cobrar y recoger: hasta que no lo limpies, no se sienta nadie más ahí.
+- Cuanto antes completes el pedido, más propina. El turno dura 4 minutos; con 3 clientes enfadados se cierra el bar.
 - Ratón: mira moviendo el cursor o arrastrando; también con `←` `→`. Móvil: arrastra para mirar y toca para usar.
 
 ## El mundo

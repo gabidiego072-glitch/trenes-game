@@ -222,10 +222,40 @@ h2 { font-family: var(--font-display); font-size: 40px; margin: 0 0 18px; }
 #bClock.low { color: var(--danger); }
 .stars { font-size: 22px; color: #ffcf3f; letter-spacing: 2px; text-shadow: 0 0 8px rgba(255, 200, 60, 0.5); }
 .stars span.lost { color: rgba(255, 255, 255, 0.18); text-shadow: none; }
-.bar-hand {
+.bar-bottom {
   position: absolute; bottom: max(18px, env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%);
+  display: flex; gap: 10px; align-items: center; max-width: calc(100vw - 32px);
+}
+.bar-hand {
   padding: 8px 16px; border-radius: 999px; background: rgba(20, 12, 8, 0.72); border: 1px solid rgba(255, 210, 150, 0.25);
-  font-weight: 700; font-size: 15px; color: #ffe2b0; white-space: nowrap;
+  font-weight: 700; font-size: 15px; color: #ffe2b0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;
+}
+.bar-drop {
+  pointer-events: auto; display: inline-flex; align-items: center; gap: 6px; flex: none;
+  padding: 9px 14px; border-radius: 999px; border: 1px solid rgba(255, 120, 100, 0.6); cursor: pointer;
+  background: rgba(150, 30, 20, 0.85); color: #fff; font-weight: 800; font-size: 14px;
+}
+.bar-drop kbd { background: rgba(255, 255, 255, 0.18); border-color: rgba(255, 255, 255, 0.3); padding: 0 5px; font-size: 11px; }
+.bar-drop:disabled { opacity: 0.4; cursor: default; }
+.bar-tickets {
+  position: absolute; top: max(70px, calc(env(safe-area-inset-top) + 64px)); right: 14px; width: 210px;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.ticket {
+  background: #fbf7ec; color: #2a2118; border-radius: 6px; padding: 8px 10px 9px; font-size: 13px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35); border-top: 4px solid #d8262b; transform: rotate(-0.6deg);
+}
+.ticket:nth-child(2) { transform: rotate(0.5deg); }
+.t-head { display: flex; justify-content: space-between; font-weight: 800; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px; }
+.t-line { padding: 2px 0; border-bottom: 1px dashed rgba(0, 0, 0, 0.15); font-family: 'Courier New', monospace; font-weight: 700; }
+.t-line.done { text-decoration: line-through; opacity: 0.45; }
+.t-bar { height: 5px; border-radius: 3px; background: rgba(0, 0, 0, 0.12); margin-top: 6px; overflow: hidden; }
+.t-bar i { display: block; height: 100%; width: 100%; }
+@media (max-width: 720px) {
+  .bar-tickets { width: 150px; top: calc(max(14px, env(safe-area-inset-top)) + 78px); right: 10px; }
+  .bar-drop kbd { display: none; }
+  .ticket { font-size: 11px; padding: 6px 8px; }
+  .bar-help { display: none; }
 }
 .bar-hint {
   position: absolute; bottom: calc(max(18px, env(safe-area-inset-bottom)) + 52px); left: 50%; transform: translate(-50%, 6px);
